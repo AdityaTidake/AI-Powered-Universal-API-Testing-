@@ -1,84 +1,159 @@
-# AITester — AI-Powered Universal API Testing Platform
+# ⚡ SpecGuard AI
 
-[![CI](https://github.com/your-username/aitester/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/aitester/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/Coverage-75%25-brightgreen.svg)]()
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+> **AI-Powered API Testing SaaS Platform** — Automatically generate, execute, and analyze API tests from OpenAPI specs using AI, with real-time insights, security scoring, and CI/CD integration.
 
-> Give it your OpenAPI spec. Get back hundreds of tests, a security audit,
-> and AI-powered failure analysis — automatically.
+---
 
-## Quick Start
+## 🏗️ Project Structure
 
+```
+specguard-ai/
+├── backend/                  ← FastAPI Python backend
+│   ├── aitester/             ← Core application package
+│   │   ├── api/              ← FastAPI routes & middleware
+│   │   ├── core/             ← Config, exceptions, logging
+│   │   ├── db/               ← SQLAlchemy models & sessions
+│   │   ├── ai/               ← AI providers (Gemini + Ollama) + RAG
+│   │   ├── executor/         ← Async test runner
+│   │   ├── generators/       ← Test case generators
+│   │   ├── parser/           ← OpenAPI spec parser
+│   │   ├── security/         ← OWASP security scanner
+│   │   └── worker/           ← Celery async task workers
+│   ├── alembic/              ← Database migrations
+│   ├── tests/                ← Pytest test suite
+│   ├── requirements.txt
+│   └── pyproject.toml
+│
+├── frontend/                 ← Vite + React + TypeScript SPA
+│   ├── src/
+│   │   ├── api/              ← Axios client + API service layer
+│   │   ├── components/       ← Reusable UI components
+│   │   ├── pages/            ← Route-level page components
+│   │   ├── store/            ← Zustand state management
+│   │   └── types/            ← TypeScript type definitions
+│   ├── public/
+│   └── package.json
+│
+├── docker/                   ← Docker & orchestration
+│   ├── docker-compose.yml
+│   └── Dockerfile
+│
+└── .github/                  ← GitHub Actions CI/CD
+    └── workflows/
+```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.12+
+- Node.js 20+
+- Docker & Docker Compose
+- PostgreSQL 16 (or use Docker)
+- Redis 7 (or use Docker)
+
+### 1. Start Infrastructure (PostgreSQL + Redis)
 ```bash
-# Clone and setup
-git clone https://github.com/your-username/aitester.git
-cd aitester
+docker compose -f docker/docker-compose.yml up -d postgres redis
+```
 
-# Create virtual environment
+### 2. Backend Setup
+```bash
+cd backend
 python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # Linux/Mac
-
-# Install dependencies
-pip install -r requirements.txt -r requirements-dev.txt
-
-# Copy environment config
-cp .env.example .env
-# Edit .env with your GEMINI_API_KEY
-
-# Start infrastructure
-docker compose -f docker/docker-compose.yml up -d
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+cp .env.example .env            # Edit with your values
 
 # Run migrations
 alembic upgrade head
 
-# Start the API server
-uvicorn aitester.main:app --reload
-
-# Run via CLI
-aitester analyze path/to/openapi.yaml
-aitester run --spec path/to/openapi.yaml --base-url http://your-api.com
+# Start the FastAPI server
+uvicorn aitester.api.main:app --reload --port 8000
 ```
 
-## Features
-
-- 📋 **OpenAPI Parser** — Parses OpenAPI 3.x specs (file or URL), resolves `$ref`
-- 🧪 **Functional Test Generator** — Auto-generates happy-path tests
-- ⚡ **Edge Case Generator** — Boundary, null, overflow, type-mismatch tests
-- 🤖 **AI Business Logic Tests** — Google Gemini infers domain-specific rules
-- 🔐 **Security Testing** — OWASP Top 10: SQLi, XSS, Path Traversal, Command Injection, JWT
-- ⚡ **Async Executor** — 50 concurrent tests via httpx + asyncio
-- 🔍 **AI Failure Analysis** — Gemini explains *why* each test failed
-- 📊 **HTML + JSON Reports** — Full coverage dashboard with AI executive summary
-- 🐳 **Docker Ready** — Multi-stage build, docker-compose full stack
-- 🔄 **GitHub Actions CI/CD** — Lint → Test → Docker → Self-test pipeline
-
-## Project Structure
-
-```
-aitester/
-├── api/          FastAPI routers
-├── cli/          Typer CLI commands
-├── parser/       OpenAPI spec parser
-├── generators/   Test case generators
-├── ai/           Gemini AI engine
-├── executor/     Async HTTP test runner
-├── security/     Security payload library
-├── reports/      HTML/JSON report builder
-├── db/           SQLAlchemy models + migrations
-└── core/         Config, logging, exceptions
+### 3. Frontend Setup
+```bash
+cd frontend
+npm install
+cp .env.example .env            # Edit VITE_API_URL if needed
+npm run dev                     # Runs at http://localhost:5173
 ```
 
-## CLI Reference
+### 4. Open the App
+- **Frontend**: http://localhost:5173
+- **API Docs**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+
+---
+
+## 🧠 AI Configuration
+
+SpecGuard AI supports two AI providers. Set `AI_PROVIDER` in `backend/.env`:
+
+| Value | Provider | Cost |
+|-------|----------|------|
+| `auto` | Gemini if key set, else Ollama | Automatic |
+| `gemini` | Google Gemini (cloud) | API credits |
+| `ollama` | Llama3 via Ollama (local) | Free |
+
+**For local Ollama (free dev)**:
+```bash
+ollama pull llama3
+# Set: OLLAMA_BASE_URL=http://localhost:11434
+```
+
+---
+
+## 🔥 Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vite + React + TypeScript |
+| Styling | Vanilla CSS (design tokens) |
+| State | Zustand + TanStack Query |
+| Backend | FastAPI (Python 3.12) |
+| Database | PostgreSQL 16 (asyncpg + SQLAlchemy 2.0) |
+| Cache / Queue | Redis 7 |
+| Workers | Celery + Redis |
+| Auth | JWT (access + refresh tokens) |
+| AI | Google Gemini + Ollama (RAG pipeline) |
+| DevOps | Docker + GitHub Actions |
+
+---
+
+## 📋 Implementation Phases
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 1 | ✅ Done | Foundation cleanup + Vite frontend scaffold |
+| 2 | 🔜 Next | JWT Auth + Multi-tenant DB schema |
+| 3 | ⬜ | Core API revamp (user-scoped endpoints) |
+| 4 | ⬜ | AI layer upgrade (RAG + LLM monitoring) |
+| 5 | ⬜ | Async workers (Celery + Redis) |
+| 6 | ⬜ | Full frontend dashboard |
+| 7 | ⬜ | Usage limits + free/pro tiers |
+| 8 | ⬜ | CI/CD + security hardening + deployment |
+
+---
+
+## 🧪 Running Tests
 
 ```bash
-aitester analyze --spec ./api.yaml           # Parse and display spec
-aitester generate --spec ./api.yaml          # Generate test cases
-aitester run --spec ./api.yaml --base-url http://api.example.com  # Full run
-aitester report --run-id <uuid> --format html  # Generate report
+cd backend
+pytest tests/ -v --cov=aitester --cov-report=html
 ```
 
-## License
+---
 
-MIT
+## 🏛️ Architecture Principles
+
+- **SOLID** — each module has one responsibility, open for extension
+- **OOP** — domain models, service classes, provider abstractions
+- **Async-first** — asyncio throughout (asyncpg, httpx, Celery)
+- **Multi-tenant** — all data scoped to users/organizations
+
+---
+
+*Built as a portfolio-grade SaaS platform demonstrating full-stack engineering, AI integration, and production-ready DevOps.*

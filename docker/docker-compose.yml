@@ -1,8 +1,8 @@
 version: "3.9"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AITester Infrastructure Stack
-# Services: PostgreSQL 16 + Redis 7
+# SpecGuard AI — Development Infrastructure Stack
+# Services: PostgreSQL 16 + Redis 7 + Backend (FastAPI) + Frontend (Vite)
 #
 # Usage:
 #   Start:   docker compose -f docker/docker-compose.yml up -d
@@ -12,37 +12,44 @@ version: "3.9"
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-  app:
+
+  # ─── FastAPI Backend ─────────────────────────────────────────────────────────
+  backend:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: aitester:latest
-    container_name: aitester_app
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
+    image: specguard-backend:latest
+    container_name: specguard_backend
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://aitester:password@postgres:5432/aitester
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - ENVIRONMENT=production
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme-replace-in-production}
+      - ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:80"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
-      - aitester-net
+      - specguard-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    restart: unless-stopped
 
-
-  # ─── PostgreSQL 16 ──────────────────────────────────────────────────────────
+  # ─── PostgreSQL 16 ───────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: aitester_postgres
+    container_name: specguard_postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: aitester
@@ -53,7 +60,7 @@ services:
       - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d   # optional SQL init scripts
+      - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aitester -d aitester"]
       interval: 5s
@@ -61,12 +68,12 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - aitester-net
+      - specguard-net
 
-  # ─── Redis 7 ────────────────────────────────────────────────────────────────
+  # ─── Redis 7 ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: aitester_redis
+    container_name: specguard_redis
     restart: unless-stopped
     command: >
       redis-server
@@ -85,7 +92,7 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - aitester-net
+      - specguard-net
 
 # ─── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
@@ -96,6 +103,6 @@ volumes:
 
 # ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
-  aitester-net:
+  specguard-net:
     driver: bridge
-    name: aitester-net
+    name: specguard-net

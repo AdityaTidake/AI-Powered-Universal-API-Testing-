@@ -1,11 +1,9 @@
-# Python
+# ─── Python (backend/) ────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.pyw
-*.pyz
-*.pyzw
 *.so
 *.egg
 *.egg-info/
@@ -14,18 +12,10 @@ build/
 *.whl
 
 # Virtual environments
-.env
 .venv/
 venv/
 env/
 ENV/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
 
 # Testing & Coverage
 .pytest_cache/
@@ -37,20 +27,32 @@ htmlcov/
 coverage.xml
 
 # Reports (generated output)
-/reports/
+backend/reports/
 *.html
 
-# Alembic
-# (keep migrations, ignore compiled)
+# ─── Node / Frontend (frontend/) ──────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.production
 
-# Docker
-docker-compose.override.yml
-
-# Logs
-*.log
-logs/
-
-# Secrets (never commit)
+# ─── Environment Files (NEVER COMMIT) ────────────────────────────────────────
 .env
 .env.local
 .env.production
+backend/.env
+frontend/.env
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
