@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aitester.api.dependencies import get_db
-from aitester.api.schemas.test_run import TestRunCreate, TestRunResponse, TestRunStatusResponse
+from aitester.schemas.test_run import TestRunCreate, TestRunResponse, TestRunStatusResponse
 from aitester.db.models.project import Project
 from aitester.db.models.test_result import TestResult
 from aitester.db.models.test_run import TestRun
