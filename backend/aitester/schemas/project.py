@@ -17,11 +17,11 @@ class ProjectResponse(BaseModel):
     """Returned by project endpoints."""
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: str
     name: str
     description: str | None
     openapi_spec: dict[str, Any] | None
-    owner_id: uuid.UUID
-    org_id: uuid.UUID | None
+    owner_id: str
+    org_id: str | None
     created_at: datetime
     updated_at: datetime

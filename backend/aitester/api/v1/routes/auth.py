@@ -10,10 +10,10 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from aitester.api.dependencies import get_current_user, get_db
+from aitester.api.dependencies import get_current_user
 from aitester.core.exceptions import AITesterError
+from aitester.db.models import User
 from aitester.schemas.auth import (
     LoginRequest,
     RefreshRequest,
@@ -22,14 +22,8 @@ from aitester.schemas.auth import (
     UserResponse,
 )
 from aitester.services.auth_service import AuthError, AuthService
-from aitester.db.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-
-def _get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
-    """Dependency factory — constructs AuthService with a DB session."""
-    return AuthService(db)
 
 
 # ─── Register ─────────────────────────────────────────────────────────────────
@@ -40,16 +34,10 @@ def _get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     status_code=status.HTTP_201_CREATED,
     summary="Create a new user account",
 )
-async def register(
-    payload: RegisterRequest,
-    service: AuthService = Depends(_get_auth_service),
-) -> TokenResponse:
-    """
-    Creates a new user (and optional organization).
-    Returns a JWT access + refresh token pair on success.
-    """
+async def register(payload: RegisterRequest) -> TokenResponse:
+    """Creates a new user (and optional organization). Returns JWT tokens."""
     try:
-        return await service.register(payload)
+        return await AuthService.register(payload)
     except AuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -64,13 +52,10 @@ async def register(
     response_model=TokenResponse,
     summary="Login with email and password",
 )
-async def login(
-    payload: LoginRequest,
-    service: AuthService = Depends(_get_auth_service),
-) -> TokenResponse:
+async def login(payload: LoginRequest) -> TokenResponse:
     """Authenticates a user and returns JWT tokens."""
     try:
-        return await service.login(payload)
+        return await AuthService.login(payload)
     except AuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -85,16 +70,10 @@ async def login(
     response_model=TokenResponse,
     summary="Rotate a refresh token",
 )
-async def refresh_token(
-    payload: RefreshRequest,
-    service: AuthService = Depends(_get_auth_service),
-) -> TokenResponse:
-    """
-    Validates the refresh token, blacklists it, and issues a new token pair.
-    Implements refresh token rotation to prevent reuse attacks.
-    """
+async def refresh_token(payload: RefreshRequest) -> TokenResponse:
+    """Validates the refresh token, blacklists it, and issues a new token pair."""
     try:
-        return await service.refresh(payload.refresh_token)
+        return await AuthService.refresh(payload.refresh_token)
     except (AuthError, AITesterError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -112,15 +91,11 @@ async def refresh_token(
 async def logout(
     request: Request,
     current_user: User = Depends(get_current_user),
-    service: AuthService = Depends(_get_auth_service),
 ) -> None:
-    """
-    Blacklists the current access token JTI in Redis.
-    The client should also discard the refresh token locally.
-    """
+    """Blacklists the current access token JTI in Redis."""
     auth_header = request.headers.get("Authorization", "")
     token = auth_header.removeprefix("Bearer ").strip()
-    await service.logout(token)
+    await AuthService.logout(token)
 
 
 # ─── Me ───────────────────────────────────────────────────────────────────────
@@ -130,8 +105,6 @@ async def logout(
     response_model=UserResponse,
     summary="Get current user profile",
 )
-async def me(
-    current_user: User = Depends(get_current_user),
-) -> User:
+async def me(current_user: User = Depends(get_current_user)) -> User:
     """Returns the authenticated user's profile."""
     return current_user

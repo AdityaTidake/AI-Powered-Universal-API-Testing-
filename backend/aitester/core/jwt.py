@@ -28,7 +28,7 @@ class TokenError(AITesterError):
 
 # ─── Token Creation ────────────────────────────────────────────────────────────
 
-def create_access_token(user_id: uuid.UUID) -> str:
+def create_access_token(user_id: str) -> str:
     """
     Creates a short-lived access token (default 15 min).
     Payload: sub=user_id, type=access, jti=unique-id, exp=expiry
@@ -45,7 +45,7 @@ def create_access_token(user_id: uuid.UUID) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(user_id: uuid.UUID) -> str:
+def create_refresh_token(user_id: str) -> str:
     """
     Creates a long-lived refresh token (default 7 days).
     Stored JTI is saved to Redis so it can be invalidated (logout/rotation).
@@ -88,10 +88,10 @@ def decode_token(token: str, expected_type: TokenType = TokenType.ACCESS) -> dic
     return payload
 
 
-def get_user_id_from_token(token: str) -> uuid.UUID:
-    """Extract and return the user UUID from a valid access token."""
+def get_user_id_from_token(token: str) -> str:
+    """Extract and return the user ID string from a valid access token."""
     payload = decode_token(token, TokenType.ACCESS)
-    return uuid.UUID(payload["sub"])
+    return payload["sub"]
 
 
 # ─── Token Blacklist (Redis) ───────────────────────────────────────────────────

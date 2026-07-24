@@ -49,7 +49,7 @@ class UserResponse(BaseModel):
     """Public representation of an authenticated user."""
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: str
     email: str
     full_name: str
     is_active: bool

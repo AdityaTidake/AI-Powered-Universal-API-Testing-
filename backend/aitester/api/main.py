@@ -19,6 +19,7 @@ from aitester.api.middleware import RequestTimingMiddleware
 from aitester.api.v1.routes import analytics, auth, projects, reports, test_runs
 from aitester.core.config import settings
 from aitester.core.exceptions import AITesterError, RecordNotFoundError
+from aitester.db.init import init_db
 
 logger = logging.getLogger("aitester.api")
 
@@ -27,11 +28,14 @@ logger = logging.getLogger("aitester.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Initialise MongoDB / Beanie on startup
+    await init_db()
     logger.info(
         f"Starting {settings.APP_NAME} v{settings.APP_VERSION} [{settings.ENVIRONMENT}]"
+        f" — MongoDB: {settings.MONGODB_DB_NAME}"
     )
     yield
-    logger.info("Shutting down SpecGuard AI...")
+    logger.info("Shutting down SpecGuard AI…")
 
 
 # ─── App Factory ──────────────────────────────────────────────────────────────
@@ -44,7 +48,7 @@ def create_application() -> FastAPI:
     application = FastAPI(
         title=settings.APP_NAME,
         description=(
-            "SpecGuard AI — Automatically generate, execute, and analyze API tests "
+            "SpecGuard AI — Automatically generate, execute, and analyse API tests "
             "from OpenAPI specs using AI, with real-time insights and security scoring."
         ),
         version=settings.APP_VERSION,

@@ -1,27 +1,18 @@
 """
 Test Runs API routes — /api/v1/projects/{project_id}/runs/*
 
-All endpoints require a valid JWT and enforce ownership:
-- The project must belong to the authenticated user.
-- Test runs are executed as background tasks using the spec stored on the project.
+All endpoints require a valid JWT and enforce ownership.
+Runs are executed as background tasks using the spec stored on the project.
 """
 
 import logging
-import uuid
 from datetime import UTC, datetime
 
+from beanie import PydanticObjectId
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from aitester.api.dependencies import get_current_user, get_db
-from aitester.db.models.project import Project
-from aitester.db.models.test_case import TestCase
-from aitester.db.models.test_result import TestResult
-from aitester.db.models.test_run import TestRun
-from aitester.db.models.user import User
-from aitester.executor.runner import AsyncTestRunner
-from aitester.generators.coordinator import TestGenerationCoordinator
+from aitester.api.dependencies import get_current_user
+from aitester.db.models import Project, TestCase, TestResult, TestRun, User
 from aitester.schemas.test_run import (
     TestResultResponse,
     TestRunCreate,
@@ -33,111 +24,101 @@ router = APIRouter(tags=["Test Runs"])
 logger = logging.getLogger("aitester.api")
 
 
-# ─── Helper: resolve project + assert ownership ────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _get_owned_project(
-    project_id: uuid.UUID,
-    current_user: User,
-    db: AsyncSession,
-) -> Project:
-    project = await db.get(Project, project_id)
+async def _get_owned_project(project_id: str, current_user: User) -> Project:
+    try:
+        project = await Project.get(PydanticObjectId(project_id))
+    except Exception:
+        project = None
     if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+        raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
 
-# ─── Aggregate counts helper ──────────────────────────────────────────────────
-
-async def _attach_counts(run: TestRun, db: AsyncSession) -> TestRunResponse:
-    """Build a TestRunResponse with aggregated pass/fail counts."""
-    total_q = await db.execute(
-        select(func.count()).where(TestResult.test_run_id == run.id)
-    )
-    passed_q = await db.execute(
-        select(func.count()).where(
-            TestResult.test_run_id == run.id, TestResult.passed.is_(True)
-        )
-    )
-    total = total_q.scalar_one()
-    passed = passed_q.scalar_one()
+async def _attach_counts(run: TestRun) -> TestRunResponse:
+    """Build TestRunResponse with aggregated pass/fail counts from MongoDB."""
+    total  = await TestResult.find(TestResult.test_run_id == run.id).count()
+    passed = await TestResult.find(
+        TestResult.test_run_id == run.id,
+        TestResult.passed == True,  # noqa: E712
+    ).count()
     failed = total - passed
 
-    resp = TestRunResponse.model_validate(run)
-    resp.total_cases = total
-    resp.passed_cases = passed
-    resp.failed_cases = failed
+    resp = TestRunResponse(
+        id=str(run.id),
+        project_id=str(run.project_id),
+        base_url=run.base_url,
+        status=run.status,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        total_cases=total,
+        passed_cases=passed,
+        failed_cases=failed,
+    )
     return resp
 
 
-# ─── Background executor ───────────────────────────────────────────────────────
+# ─── Background Executor ──────────────────────────────────────────────────────
 
 async def _execute_test_run(
-    test_run_id: uuid.UUID,
+    test_run_id: str,
     base_url: str,
     spec_dict: dict,
     types: list[str],
     enable_ai: bool,
 ) -> None:
-    """
-    Background task: generate + execute test cases.
-    Uses a fresh DB session since this runs outside the request lifecycle.
-    """
-    from aitester.db.session import AsyncSessionLocal
+    """Background task: generate + execute test cases then persist results."""
+    from aitester.db.init import init_db  # ensure connection is initialised
     from aitester.parser.parser import parse_spec_dict
 
     try:
-        # Mark as RUNNING
-        async with AsyncSessionLocal() as db:
-            run = await db.get(TestRun, test_run_id)
-            if run:
-                run.status = "RUNNING"
-                run.started_at = datetime.now(UTC)
-                await db.commit()
+        run = await TestRun.get(PydanticObjectId(test_run_id))
+        if run:
+            run.status = "RUNNING"
+            run.started_at = datetime.now(UTC)
+            await run.save()
 
-        # Parse spec from the project's stored JSON
         spec = parse_spec_dict(spec_dict)
 
-        # Generate test cases
+        from aitester.generators.coordinator import TestGenerationCoordinator
         coordinator = TestGenerationCoordinator(enable_ai=enable_ai, types=types)
-        test_cases = await coordinator.generate_async(spec, str(test_run_id))
+        test_cases  = await coordinator.generate_async(spec, test_run_id)
 
         if not test_cases:
-            async with AsyncSessionLocal() as db:
-                run = await db.get(TestRun, test_run_id)
-                if run:
-                    run.status = "COMPLETED"
-                    run.completed_at = datetime.now(UTC)
-                    await db.commit()
-            return
-
-        # Persist generated test cases
-        async with AsyncSessionLocal() as db:
-            db.add_all(test_cases)
-            await db.commit()
-
-        # Execute
-        runner = AsyncTestRunner(base_url=base_url)
-        results = await runner.execute_all(test_cases)
-
-        async with AsyncSessionLocal() as db:
-            run = await db.get(TestRun, test_run_id)
+            run = await TestRun.get(PydanticObjectId(test_run_id))
             if run:
-                db.add_all(results)
                 run.status = "COMPLETED"
                 run.completed_at = datetime.now(UTC)
-                await db.commit()
+                await run.save()
+            return
+
+        await TestCase.insert_many(test_cases)  # type: ignore
+
+        from aitester.executor.runner import AsyncTestRunner
+        runner  = AsyncTestRunner(base_url=base_url)
+        results = await runner.execute_all(test_cases)
+
+        await TestResult.insert_many(results)  # type: ignore
+
+        run = await TestRun.get(PydanticObjectId(test_run_id))
+        if run:
+            run.status = "COMPLETED"
+            run.completed_at = datetime.now(UTC)
+            await run.save()
 
     except Exception as exc:
         logger.error(f"Test run {test_run_id} failed: {exc}", exc_info=True)
-        async with AsyncSessionLocal() as db:
-            run = await db.get(TestRun, test_run_id)
-            if run:
-                run.status = "FAILED"
-                run.completed_at = datetime.now(UTC)
-                await db.commit()
+        run = await TestRun.get(PydanticObjectId(test_run_id))
+        if run:
+            run.status = "FAILED"
+            run.completed_at = datetime.now(UTC)
+            await run.save()
 
 
-# ─── Create Test Run ───────────────────────────────────────────────────────────
+# ─── Create Run ───────────────────────────────────────────────────────────────
 
 @router.post(
     "/projects/{project_id}/runs",
@@ -146,17 +127,12 @@ async def _execute_test_run(
     summary="Launch a new test run for a project",
 )
 async def create_test_run(
-    project_id: uuid.UUID,
+    project_id: str,
     run_create: TestRunCreate,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TestRunResponse:
-    """
-    Creates a TestRun record and dispatches execution as a background task.
-    Uses the OpenAPI spec stored on the project (uploaded via /upload-spec).
-    """
-    project = await _get_owned_project(project_id, current_user, db)
+    project = await _get_owned_project(project_id, current_user)
 
     if not project.openapi_spec:
         raise HTTPException(
@@ -165,27 +141,25 @@ async def create_test_run(
         )
 
     new_run = TestRun(
-        project_id=project_id,
+        project_id=project.id,  # type: ignore
         base_url=run_create.base_url,
         status="PENDING",
     )
-    db.add(new_run)
-    await db.commit()
-    await db.refresh(new_run)
+    await new_run.insert()
 
     background_tasks.add_task(
         _execute_test_run,
-        test_run_id=new_run.id,
+        test_run_id=str(new_run.id),
         base_url=run_create.base_url,
         spec_dict=project.openapi_spec,
         types=list(run_create.types),
         enable_ai=run_create.enable_ai,
     )
 
-    return await _attach_counts(new_run, db)
+    return await _attach_counts(new_run)
 
 
-# ─── List Test Runs ────────────────────────────────────────────────────────────
+# ─── List Runs ─────────────────────────────────────────────────────────────────
 
 @router.get(
     "/projects/{project_id}/runs",
@@ -193,26 +167,29 @@ async def create_test_run(
     summary="List test runs for a project",
 )
 async def list_test_runs(
-    project_id: uuid.UUID,
+    project_id: str,
     skip: int = 0,
     limit: int = 50,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[TestRunResponse]:
-    await _get_owned_project(project_id, current_user, db)
+    await _get_owned_project(project_id, current_user)
 
-    result = await db.execute(
-        select(TestRun)
-        .where(TestRun.project_id == project_id)
-        .order_by(TestRun.created_at.desc())
-        .offset(skip)
+    try:
+        pid = PydanticObjectId(project_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid project_id.")
+
+    runs = await (
+        TestRun.find(TestRun.project_id == pid)
+        .sort("-created_at")
+        .skip(skip)
         .limit(limit)
+        .to_list()
     )
-    runs = result.scalars().all()
-    return [await _attach_counts(r, db) for r in runs]
+    return [await _attach_counts(r) for r in runs]
 
 
-# ─── Get Single Test Run ───────────────────────────────────────────────────────
+# ─── Get Single Run ────────────────────────────────────────────────────────────
 
 @router.get(
     "/runs/{run_id}",
@@ -220,19 +197,20 @@ async def list_test_runs(
     summary="Get a single test run",
 )
 async def get_test_run(
-    run_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    run_id: str,
     current_user: User = Depends(get_current_user),
 ) -> TestRunResponse:
-    run = await db.get(TestRun, run_id)
+    try:
+        run = await TestRun.get(PydanticObjectId(run_id))
+    except Exception:
+        run = None
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found.")
-    # Verify ownership via the project
-    await _get_owned_project(run.project_id, current_user, db)
-    return await _attach_counts(run, db)
+    await _get_owned_project(str(run.project_id), current_user)
+    return await _attach_counts(run)
 
 
-# ─── Get Run Status (lightweight poll endpoint) ────────────────────────────────
+# ─── Status Poll ──────────────────────────────────────────────────────────────
 
 @router.get(
     "/runs/{run_id}/status",
@@ -240,27 +218,22 @@ async def get_test_run(
     summary="Poll status of a test run",
 )
 async def get_test_run_status(
-    run_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    run_id: str,
     current_user: User = Depends(get_current_user),
 ) -> TestRunStatusResponse:
-    run = await db.get(TestRun, run_id)
+    try:
+        run = await TestRun.get(PydanticObjectId(run_id))
+    except Exception:
+        run = None
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found.")
-    await _get_owned_project(run.project_id, current_user, db)
+    await _get_owned_project(str(run.project_id), current_user)
 
-    total_q = await db.execute(
-        select(func.count()).where(TestResult.test_run_id == run_id)
-    )
-    passed_q = await db.execute(
-        select(func.count()).where(
-            TestResult.test_run_id == run_id, TestResult.passed.is_(True)
-        )
-    )
-    total = total_q.scalar_one()
-    passed = passed_q.scalar_one()
+    total  = await TestResult.find(TestResult.test_run_id == run.id).count()
+    passed = await TestResult.find(
+        TestResult.test_run_id == run.id, TestResult.passed == True  # noqa: E712
+    ).count()
     failed = total - passed
-    progress = round(total / max(total, 1) * 100, 1) if total else 0
 
     return TestRunStatusResponse(
         status=run.status,
@@ -268,11 +241,11 @@ async def get_test_run_status(
         completed_cases=total,
         passed_cases=passed,
         failed_cases=failed,
-        progress_pct=progress,
+        progress_pct=100.0 if total > 0 else 0.0,
     )
 
 
-# ─── Get Run Results ───────────────────────────────────────────────────────────
+# ─── Results ──────────────────────────────────────────────────────────────────
 
 @router.get(
     "/runs/{run_id}/results",
@@ -280,22 +253,21 @@ async def get_test_run_status(
     summary="Get all test results for a run",
 )
 async def get_test_run_results(
-    run_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    run_id: str,
     current_user: User = Depends(get_current_user),
-) -> list[TestResultResponse]:
-    run = await db.get(TestRun, run_id)
+) -> list[TestResult]:
+    try:
+        run = await TestRun.get(PydanticObjectId(run_id))
+    except Exception:
+        run = None
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found.")
-    await _get_owned_project(run.project_id, current_user, db)
+    await _get_owned_project(str(run.project_id), current_user)
 
-    result = await db.execute(
-        select(TestResult).where(TestResult.test_run_id == run_id)
-    )
-    return list(result.scalars().all())
+    return await TestResult.find(TestResult.test_run_id == run.id).to_list()
 
 
-# ─── Delete Test Run ───────────────────────────────────────────────────────────
+# ─── Delete Run ───────────────────────────────────────────────────────────────
 
 @router.delete(
     "/runs/{run_id}",
@@ -303,13 +275,14 @@ async def get_test_run_results(
     summary="Delete a test run",
 )
 async def delete_test_run(
-    run_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    run_id: str,
     current_user: User = Depends(get_current_user),
 ) -> None:
-    run = await db.get(TestRun, run_id)
+    try:
+        run = await TestRun.get(PydanticObjectId(run_id))
+    except Exception:
+        run = None
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found.")
-    await _get_owned_project(run.project_id, current_user, db)
-    await db.delete(run)
-    await db.commit()
+    await _get_owned_project(str(run.project_id), current_user)
+    await run.delete()

@@ -22,8 +22,8 @@ class TestRunResponse(BaseModel):
     """Returned by all test run endpoints."""
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    project_id: uuid.UUID
+    id: str
+    project_id: str
     status: str
     base_url: str
     created_at: datetime
@@ -51,9 +51,9 @@ class TestResultResponse(BaseModel):
     """Returned by GET /runs/{run_id}/results."""
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    test_run_id: uuid.UUID
-    test_case_id: uuid.UUID
+    id: str
+    test_run_id: str
+    test_case_id: str
     passed: bool
     status: str
     actual_status_code: int | None = None

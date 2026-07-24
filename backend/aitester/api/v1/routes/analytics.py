@@ -1,22 +1,15 @@
 """
 Analytics API routes — /api/v1/analytics/*
-
-Aggregates live data from the DB for the authenticated user's projects.
-All endpoints require a valid JWT.
+Aggregates live data from MongoDB for the authenticated user's projects.
 """
 
 import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import case, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from aitester.api.dependencies import get_current_user, get_db
-from aitester.db.models.project import Project
-from aitester.db.models.test_result import TestResult
-from aitester.db.models.test_run import TestRun
-from aitester.db.models.user import User
+from aitester.api.dependencies import get_current_user
+from aitester.db.models import Project, TestResult, TestRun, User
 from aitester.schemas.analytics import (
     CoverageProjectResponse,
     DashboardStatsResponse,
@@ -35,26 +28,16 @@ logger = logging.getLogger("aitester.api")
     summary="Aggregate stats for the authenticated user's dashboard",
 )
 async def get_dashboard_stats(
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DashboardStatsResponse:
     from aitester.core.config import settings as cfg
 
-    # ── Project count ─────────────────────────────────────────────────────────
-    proj_q = await db.execute(
-        select(func.count(Project.id)).where(Project.owner_id == current_user.id)
-    )
-    total_projects: int = proj_q.scalar_one() or 0
+    # Project count
+    total_projects = await Project.find(Project.owner_id == current_user.id).count()
 
-    # ── All run IDs for this user ─────────────────────────────────────────────
-    user_project_ids_q = await db.execute(
-        select(Project.id).where(Project.owner_id == current_user.id)
-    )
-    user_project_ids = [r for r in user_project_ids_q.scalars().all()]
-
-    if not user_project_ids:
+    if total_projects == 0:
         return DashboardStatsResponse(
-            total_projects=total_projects,
+            total_projects=0,
             total_runs=0,
             pass_rate=0.0,
             avg_latency_ms=0.0,
@@ -62,35 +45,37 @@ async def get_dashboard_stats(
             plan_limit=cfg.FREE_PLAN_MONTHLY_RUNS if current_user.plan == "free" else cfg.PRO_PLAN_MONTHLY_RUNS,
         )
 
-    # ── Total runs ────────────────────────────────────────────────────────────
-    runs_q = await db.execute(
-        select(func.count(TestRun.id)).where(
-            TestRun.project_id.in_(user_project_ids)
-        )
-    )
-    total_runs: int = runs_q.scalar_one() or 0
+    # All project IDs for this user
+    projects = await Project.find(Project.owner_id == current_user.id).to_list()
+    project_ids = [p.id for p in projects]
 
-    # ── Pass rate + avg latency across all results ────────────────────────────
-    run_ids_q = await db.execute(
-        select(TestRun.id).where(TestRun.project_id.in_(user_project_ids))
-    )
-    run_ids = [r for r in run_ids_q.scalars().all()]
+    # Total runs
+    total_runs = await TestRun.find({"project_id": {"$in": project_ids}}).count()
+
+    # All run IDs
+    runs = await TestRun.find({"project_id": {"$in": project_ids}}).to_list()
+    run_ids = [r.id for r in runs]
 
     pass_rate = 0.0
     avg_latency_ms = 0.0
 
     if run_ids:
-        agg_q = await db.execute(
-            select(
-                func.count(TestResult.id).label("total"),
-                func.sum(case((TestResult.passed.is_(True), 1), else_=0)).label("passed"),
-                func.avg(TestResult.latency_ms).label("avg_latency"),
-            ).where(TestResult.test_run_id.in_(run_ids))
-        )
-        row = agg_q.one()
-        if row.total and row.total > 0:
-            pass_rate = round((row.passed or 0) / row.total * 100, 1)
-        avg_latency_ms = round(float(row.avg_latency or 0), 1)
+        total_results  = await TestResult.find({"test_run_id": {"$in": run_ids}}).count()
+        passed_results = await TestResult.find(
+            {"test_run_id": {"$in": run_ids}, "passed": True}
+        ).count()
+
+        if total_results > 0:
+            pass_rate = round(passed_results / total_results * 100, 1)
+
+        # Average latency using aggregation pipeline
+        pipeline = [
+            {"$match": {"test_run_id": {"$in": run_ids}}},
+            {"$group": {"_id": None, "avg_lat": {"$avg": "$latency_ms"}}},
+        ]
+        agg = await TestResult.aggregate(pipeline).to_list()
+        if agg:
+            avg_latency_ms = round(float(agg[0].get("avg_lat") or 0), 1)
 
     plan_limit = (
         cfg.FREE_PLAN_MONTHLY_RUNS if current_user.plan == "free"
@@ -115,55 +100,54 @@ async def get_dashboard_stats(
     summary="Daily pass/fail counts for the last 14 days",
 )
 async def get_trends(
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[TrendPointResponse]:
-    # Build date range
     today = datetime.now(UTC).date()
-    days = [today - timedelta(days=i) for i in range(13, -1, -1)]
+    days  = [today - timedelta(days=i) for i in range(13, -1, -1)]
 
-    user_project_ids_q = await db.execute(
-        select(Project.id).where(Project.owner_id == current_user.id)
-    )
-    user_project_ids = list(user_project_ids_q.scalars().all())
+    projects   = await Project.find(Project.owner_id == current_user.id).to_list()
+    project_ids = [p.id for p in projects]
 
-    if not user_project_ids:
-        return [TrendPointResponse(date=d.strftime("%-d %b") if hasattr(d, 'strftime') else str(d), passed=0, failed=0) for d in days]
+    if not project_ids:
+        return [TrendPointResponse(date=d.strftime("%b %-d"), passed=0, failed=0) for d in days]
 
-    run_ids_q = await db.execute(
-        select(TestRun.id).where(TestRun.project_id.in_(user_project_ids))
-    )
-    run_ids = list(run_ids_q.scalars().all())
+    runs   = await TestRun.find({"project_id": {"$in": project_ids}}).to_list()
+    run_ids = [r.id for r in runs]
 
-    # Default bucket: {date_str: {passed: 0, failed: 0}}
-    buckets: dict[str, dict[str, int]] = {}
-    for d in days:
-        label = d.strftime("%b %-d") if hasattr(d, 'strftime') else str(d)
-        buckets[d.isoformat()] = {"label": label, "passed": 0, "failed": 0}
+    cutoff = datetime.now(UTC) - timedelta(days=14)
 
-    if run_ids:
-        results_q = await db.execute(
-            select(
-                func.date(TestResult.created_at).label("day"),
-                func.sum(case((TestResult.passed.is_(True), 1), else_=0)).label("passed"),
-                func.sum(case((TestResult.passed.is_(False), 1), else_=0)).label("failed"),
-            )
-            .where(
-                TestResult.test_run_id.in_(run_ids),
-                TestResult.created_at >= datetime.now(UTC) - timedelta(days=14),
-            )
-            .group_by(func.date(TestResult.created_at))
-        )
-        for row in results_q.all():
-            key = str(row.day)
-            if key in buckets:
-                buckets[key]["passed"] = int(row.passed or 0)
-                buckets[key]["failed"] = int(row.failed or 0)
-
-    return [
-        TrendPointResponse(date=v["label"], passed=v["passed"], failed=v["failed"])
-        for v in buckets.values()
+    # Aggregation pipeline for daily bucketing
+    pipeline = [
+        {"$match": {
+            "test_run_id": {"$in": run_ids},
+            "created_at": {"$gte": cutoff},
+        }},
+        {"$group": {
+            "_id": {
+                "y": {"$year": "$created_at"},
+                "m": {"$month": "$created_at"},
+                "d": {"$dayOfMonth": "$created_at"},
+            },
+            "passed": {"$sum": {"$cond": ["$passed", 1, 0]}},
+            "failed": {"$sum": {"$cond": ["$passed", 0, 1]}},
+        }},
     ]
+    agg = await TestResult.aggregate(pipeline).to_list()
+
+    # Map aggregation results to date keys
+    buckets: dict[str, dict] = {}
+    for item in agg:
+        key = f"{item['_id']['y']:04d}-{item['_id']['m']:02d}-{item['_id']['d']:02d}"
+        buckets[key] = {"passed": item["passed"], "failed": item["failed"]}
+
+    result = []
+    for d in days:
+        key   = d.isoformat()
+        label = d.strftime("%b %d").lstrip("0") if hasattr(d, "strftime") else str(d)
+        b     = buckets.get(key, {"passed": 0, "failed": 0})
+        result.append(TrendPointResponse(date=label, passed=b["passed"], failed=b["failed"]))
+
+    return result
 
 
 # ─── Coverage ─────────────────────────────────────────────────────────────────
@@ -174,33 +158,27 @@ async def get_trends(
     summary="Endpoint coverage per project",
 )
 async def get_coverage(
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[CoverageProjectResponse]:
-    result = await db.execute(
-        select(Project).where(Project.owner_id == current_user.id)
-    )
-    projects = result.scalars().all()
+    projects = await Project.find(Project.owner_id == current_user.id).to_list()
 
     coverage_list = []
     for proj in projects:
         spec = proj.openapi_spec or {}
         paths = spec.get("paths", {})
-        # Count total operation entries in the spec
         endpoints_total = sum(len(methods) for methods in paths.values()) if paths else 0
 
-        # Count distinct endpoints actually tested
-        tested_q = await db.execute(
-            select(func.count(func.distinct(
-                func.concat(
-                    TestResult.test_run_id.cast("text"),
-                    TestResult.test_case_id.cast("text"),
-                )
-            ))).select_from(TestResult)
-            .join(TestRun, TestResult.test_run_id == TestRun.id)
-            .where(TestRun.project_id == proj.id)
-        )
-        endpoints_tested = min(tested_q.scalar_one() or 0, endpoints_total)
+        # Count distinct test cases created for runs under this project
+        runs = await TestRun.find(TestRun.project_id == proj.id).to_list()
+        run_ids = [r.id for r in runs]
+
+        endpoints_tested = 0
+        if run_ids:
+            endpoints_tested = await TestResult.find(
+                {"test_run_id": {"$in": run_ids}}
+            ).count()
+            endpoints_tested = min(endpoints_tested, endpoints_total)
+
         coverage_pct = (
             round(endpoints_tested / endpoints_total * 100, 1) if endpoints_total else 0.0
         )

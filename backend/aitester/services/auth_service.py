@@ -1,18 +1,16 @@
 """
-Authentication Service — encapsulates all auth business logic.
+Authentication Service — Beanie/MongoDB edition.
 
 SOLID:
-- Single Responsibility: Only handles register/login/refresh/logout logic.
-- Dependency Inversion: Depends on DB session interface, not concretions.
+- Single Responsibility: Only handles register/login/refresh/logout.
 - Open/Closed: New OAuth providers can be added without touching this service.
 """
 
-import uuid
 import re
+import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from beanie import PydanticObjectId
 
 from aitester.core.exceptions import AITesterError
 from aitester.core.jwt import (
@@ -24,9 +22,7 @@ from aitester.core.jwt import (
     is_token_blacklisted,
 )
 from aitester.core.password import hash_password, verify_password
-from aitester.db.models.organization import Organization
-from aitester.db.models.org_member import OrgMember
-from aitester.db.models.user import User
+from aitester.db.models import Organization, User
 from aitester.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
 
@@ -42,24 +38,19 @@ def _make_slug(name: str) -> str:
 
 class AuthService:
     """
-    Stateless service — receives a DB session per call.
-    All methods are async to align with the async DB layer.
+    Stateless auth service — no DB session needed (Beanie uses a global connection).
+    All methods are async.
     """
-
-    def __init__(self, db: AsyncSession) -> None:
-        self._db = db
 
     # ── Register ──────────────────────────────────────────────────────────────
 
-    async def register(self, payload: RegisterRequest) -> TokenResponse:
+    @staticmethod
+    async def register(payload: RegisterRequest) -> TokenResponse:
         """
         Create a new user account.
-        Optionally creates an Organization and makes the user its owner.
         Raises AuthError if the email is already registered.
         """
-        existing = await self._db.scalar(
-            select(User).where(User.email == payload.email)
-        )
+        existing = await User.find_one(User.email == payload.email)
         if existing:
             raise AuthError(
                 "An account with this email already exists.",
@@ -72,55 +63,45 @@ class AuthService:
             full_name=payload.full_name,
             is_active=True,
         )
-        self._db.add(user)
-        await self._db.flush()  # Get user.id before creating org
+        await user.insert()
 
         if payload.org_name:
             org = Organization(
                 name=payload.org_name,
                 slug=_make_slug(payload.org_name),
+                owner_id=user.id,
+                member_ids=[user.id],
             )
-            self._db.add(org)
-            await self._db.flush()
+            await org.insert()
 
-            membership = OrgMember(
-                org_id=org.id,
-                user_id=user.id,
-                role="owner",
-            )
-            self._db.add(membership)
-
-        await self._db.commit()
-        await self._db.refresh(user)
-
-        return self._issue_tokens(user.id)
+        return AuthService._issue_tokens(user.id)
 
     # ── Login ─────────────────────────────────────────────────────────────────
 
-    async def login(self, payload: LoginRequest) -> TokenResponse:
+    @staticmethod
+    async def login(payload: LoginRequest) -> TokenResponse:
         """
         Authenticate a user by email + password.
-        Raises AuthError with a generic message on any failure (no user enumeration).
+        Raises AuthError with a generic message (no user enumeration).
         """
         _generic_error = AuthError(
             "Invalid email or password.",
             details={"hint": "Check credentials and try again."},
         )
 
-        user = await self._db.scalar(
-            select(User).where(User.email == payload.email)
-        )
+        user = await User.find_one(User.email == payload.email)
         if not user or not user.is_active:
             raise _generic_error
 
         if not verify_password(payload.password, user.hashed_password):
             raise _generic_error
 
-        return self._issue_tokens(user.id)
+        return AuthService._issue_tokens(user.id)
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 
-    async def refresh(self, refresh_token: str) -> TokenResponse:
+    @staticmethod
+    async def refresh(refresh_token: str) -> TokenResponse:
         """
         Rotate tokens: validate the refresh token, blacklist it,
         and issue a fresh access + refresh pair.
@@ -133,26 +114,26 @@ class AuthService:
         if await is_token_blacklisted(jti):
             raise AuthError("Refresh token has been revoked.", details={"reason": "blacklisted"})
 
-        # Verify user still exists and is active
-        user_id = uuid.UUID(payload["sub"])
-        user = await self._db.get(User, user_id)
+        user_id_str = payload["sub"]
+        try:
+            user = await User.get(PydanticObjectId(user_id_str))
+        except Exception:
+            user = None
+
         if not user or not user.is_active:
             raise AuthError("User account is inactive or deleted.")
 
-        # Rotate: blacklist old refresh token
         import time
         ttl = max(0, int(payload["exp"] - time.time()))
         await blacklist_token(jti, ttl)
 
-        return self._issue_tokens(user.id)
+        return AuthService._issue_tokens(user.id)
 
     # ── Logout ────────────────────────────────────────────────────────────────
 
-    async def logout(self, access_token: str) -> None:
-        """
-        Blacklist the current access token JTI so it cannot be reused.
-        This is a best-effort operation — Redis failures are silently swallowed.
-        """
+    @staticmethod
+    async def logout(access_token: str) -> None:
+        """Blacklist the current access token JTI."""
         try:
             import time
             payload = decode_token(access_token, expected_type=TokenType.ACCESS)
@@ -160,13 +141,14 @@ class AuthService:
             ttl = max(0, int(payload["exp"] - time.time()))
             await blacklist_token(jti, ttl)
         except Exception:
-            pass  # Already expired tokens needn't be blacklisted
+            pass
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _issue_tokens(user_id: uuid.UUID) -> TokenResponse:
+    def _issue_tokens(user_id: PydanticObjectId) -> TokenResponse:
+        # Convert ObjectId → str for JWT subject
         return TokenResponse(
-            access_token=create_access_token(user_id),
-            refresh_token=create_refresh_token(user_id),
+            access_token=create_access_token(str(user_id)),
+            refresh_token=create_refresh_token(str(user_id)),
         )

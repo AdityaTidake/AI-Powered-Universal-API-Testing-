@@ -1,24 +1,24 @@
 """
-FastAPI dependency providers for SpecGuard AI.
+FastAPI dependency providers for SpecGuard AI — MongoDB / Beanie edition.
 
 SOLID:
-- Interface Segregation: Callers import only what they need (get_db, get_current_user, etc.)
+- Interface Segregation: Callers import only what they need.
 - Dependency Inversion: Routes depend on these injected interfaces, not DB/JWT directly.
+
+Note: With Beanie there is no session / connection to inject — documents use the
+globally initialised Motor client. The only injected dependency is the current user.
 """
 
 import uuid
 
+from beanie import PydanticObjectId
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from aitester.core.jwt import TokenError, get_user_id_from_token, is_token_blacklisted, decode_token, TokenType
-from aitester.db.models.user import User
-from aitester.db.session import get_db
+from aitester.core.jwt import TokenError, decode_token, is_token_blacklisted, TokenType
+from aitester.db.models import User
 
-# ── Re-export for backwards compat ────────────────────────────────────────────
-__all__ = ["get_db", "get_current_user", "require_active_user", "require_pro_plan"]
+__all__ = ["get_current_user", "require_active_user", "require_pro_plan", "require_run_quota"]
 
 # Bearer scheme — auto-extracts "Authorization: Bearer <token>"
 _bearer = HTTPBearer(auto_error=True)
@@ -28,7 +28,6 @@ _bearer = HTTPBearer(auto_error=True)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
-    db: AsyncSession = Depends(get_db),
 ) -> User:
     """
     Decodes the JWT, checks the Redis blacklist, and returns the active User.
@@ -42,15 +41,21 @@ async def get_current_user(
     token = credentials.credentials
     try:
         payload = decode_token(token, expected_type=TokenType.ACCESS)
-        jti = payload.get("jti", "")
-        user_id = uuid.UUID(payload["sub"])
+        jti     = payload.get("jti", "")
+        # sub is stored as str(uuid) but MongoDB IDs are ObjectId strings
+        user_id_str = payload["sub"]
     except (TokenError, Exception):
         raise _401
 
     if await is_token_blacklisted(jti):
         raise _401
 
-    user = await db.get(User, user_id)
+    # Look up by the _id stored as string in JWT sub
+    try:
+        user = await User.get(PydanticObjectId(user_id_str))
+    except Exception:
+        raise _401
+
     if not user or not user.is_active:
         raise _401
 
@@ -69,10 +74,7 @@ async def require_active_user(
 async def require_pro_plan(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """
-    Blocks access if the user is on the free plan.
-    Raises HTTP 403 with an upgrade prompt.
-    """
+    """Blocks access if the user is on the free plan."""
     if current_user.plan == "free":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -88,10 +90,7 @@ async def require_pro_plan(
 async def require_run_quota(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """
-    Checks whether the user has remaining monthly test runs.
-    Free: 10/month. Pro: 500/month.
-    """
+    """Checks whether the user has remaining monthly test runs."""
     from aitester.core.config import settings as cfg
 
     limit = cfg.FREE_PLAN_MONTHLY_RUNS if current_user.plan == "free" else cfg.PRO_PLAN_MONTHLY_RUNS

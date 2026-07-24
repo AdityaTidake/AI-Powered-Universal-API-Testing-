@@ -3,22 +3,31 @@ Projects API routes — /api/v1/projects/*
 All endpoints require a valid JWT. Projects are scoped to the authenticated user.
 """
 
-import uuid
+from datetime import UTC, datetime
 
+from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from aitester.api.dependencies import get_current_user, get_db
-from aitester.core.exceptions import DatabaseError, RecordNotFoundError
-from aitester.db.models.project import Project
-from aitester.db.models.user import User
+from aitester.api.dependencies import get_current_user
+from aitester.db.models import Project, User
 from aitester.schemas.project import ProjectCreate, ProjectResponse
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
 
-# ─── Create Project ───────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async def _get_owned_project(project_id: str, current_user: User) -> Project:
+    try:
+        project = await Project.get(PydanticObjectId(project_id))
+    except Exception:
+        project = None
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return project
+
+
+# ─── Create ───────────────────────────────────────────────────────────────────
 
 @router.post(
     "",
@@ -28,26 +37,19 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
 )
 async def create_project(
     project_in: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
     """Creates a project owned by the current user."""
-    try:
-        project = Project(
-            name=project_in.name,
-            description=project_in.description,
-            owner_id=current_user.id,
-        )
-        db.add(project)
-        await db.commit()
-        await db.refresh(project)
-        return project
-    except Exception as exc:
-        await db.rollback()
-        raise DatabaseError(f"Failed to create project: {exc}") from exc
+    project = Project(
+        name=project_in.name,
+        description=project_in.description,
+        owner_id=current_user.id,
+    )
+    await project.insert()
+    return project
 
 
-# ─── List Projects ────────────────────────────────────────────────────────────
+# ─── List ─────────────────────────────────────────────────────────────────────
 
 @router.get(
     "",
@@ -57,22 +59,19 @@ async def create_project(
 async def list_projects(
     skip: int = 0,
     limit: int = 50,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Project]:
-    """Returns only projects owned by the authenticated user (row-level isolation)."""
-    stmt = (
-        select(Project)
-        .where(Project.owner_id == current_user.id)
-        .order_by(Project.created_at.desc())
-        .offset(skip)
+    """Returns only projects owned by the authenticated user."""
+    return await (
+        Project.find(Project.owner_id == current_user.id)
+        .sort("-created_at")
+        .skip(skip)
         .limit(limit)
+        .to_list()
     )
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
 
 
-# ─── Get Project ──────────────────────────────────────────────────────────────
+# ─── Get Single ───────────────────────────────────────────────────────────────
 
 @router.get(
     "/{project_id}",
@@ -80,17 +79,13 @@ async def list_projects(
     summary="Get a single project",
 )
 async def get_project(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    project_id: str,
     current_user: User = Depends(get_current_user),
 ) -> Project:
-    project = await db.get(Project, project_id)
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    return project
+    return await _get_owned_project(project_id, current_user)
 
 
-# ─── Delete Project ───────────────────────────────────────────────────────────
+# ─── Delete ───────────────────────────────────────────────────────────────────
 
 @router.delete(
     "/{project_id}",
@@ -98,15 +93,11 @@ async def get_project(
     summary="Delete a project",
 )
 async def delete_project(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    project_id: str,
     current_user: User = Depends(get_current_user),
 ) -> None:
-    project = await db.get(Project, project_id)
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    await db.delete(project)
-    await db.commit()
+    project = await _get_owned_project(project_id, current_user)
+    await project.delete()
 
 
 # ─── Upload OpenAPI Spec ──────────────────────────────────────────────────────
@@ -117,22 +108,15 @@ async def delete_project(
     summary="Upload an OpenAPI spec (YAML or JSON) to a project",
 )
 async def upload_spec(
-    project_id: uuid.UUID,
+    project_id: str,
     file: UploadFile = File(..., description="OpenAPI YAML or JSON file"),
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
-    """
-    Parses the uploaded spec file and stores it as JSON in the project.
-    Supports both YAML (.yaml/.yml) and JSON (.json) OpenAPI 3.x specs.
-    """
+    """Parses the spec file and stores it as a document field on the project."""
     import json
     import yaml
 
-    project = await db.get(Project, project_id)
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
+    project = await _get_owned_project(project_id, current_user)
     content = await file.read()
     filename = (file.filename or "").lower()
 
@@ -148,6 +132,6 @@ async def upload_spec(
         ) from exc
 
     project.openapi_spec = spec_dict
-    await db.commit()
-    await db.refresh(project)
+    project.updated_at = datetime.now(UTC)
+    await project.save()
     return project

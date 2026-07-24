@@ -33,8 +33,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    # ─── Database (PostgreSQL via asyncpg) ────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://aitester:password@localhost:5432/aitester"
+    # ─── Database (MongoDB via Motor + Beanie) ─────────────────────────────────
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "specguard"
 
     # ─── Cache (Redis) ────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -127,9 +128,9 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "development"
 
     @property
-    def database_url_sync(self) -> str:
-        """Synchronous DB URL for Alembic migrations (uses psycopg2 driver)."""
-        return self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    def mongodb_connection_string(self) -> str:
+        """Full MongoDB connection string (alias for MONGODB_URL)."""
+        return self.MONGODB_URL
 
     @property
     def effective_ai_provider(self) -> str:
