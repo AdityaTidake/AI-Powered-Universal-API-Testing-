@@ -1,10 +1,11 @@
 """Pydantic schemas for the Project resource."""
 
-import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
+
+from aitester.schemas.base import MongoBaseResponse, PyObjectIdStr
 
 
 class ProjectCreate(BaseModel):
@@ -13,15 +14,13 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(None, max_length=2000)
 
 
-class ProjectResponse(BaseModel):
+class ProjectResponse(MongoBaseResponse):
     """Returned by project endpoints."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
+    id: PyObjectIdStr
     name: str
     description: str | None
     openapi_spec: dict[str, Any] | None
-    owner_id: str
-    org_id: str | None
+    owner_id: PyObjectIdStr
+    org_id: PyObjectIdStr | None = None
     created_at: datetime
     updated_at: datetime

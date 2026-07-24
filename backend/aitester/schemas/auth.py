@@ -2,10 +2,10 @@
 Pydantic schemas for Authentication endpoints.
 """
 
-import uuid
 from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from aitester.schemas.base import MongoBaseResponse, PyObjectIdStr
 
 
 # ─── Request Schemas ──────────────────────────────────────────────────────────
@@ -45,11 +45,9 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
-class UserResponse(BaseModel):
+class UserResponse(MongoBaseResponse):
     """Public representation of an authenticated user."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
+    id: PyObjectIdStr
     email: str
     full_name: str
     is_active: bool

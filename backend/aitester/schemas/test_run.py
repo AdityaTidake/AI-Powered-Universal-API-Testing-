@@ -1,36 +1,32 @@
 """Pydantic schemas for TestRun and TestResult resources."""
 
-import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
+
+from aitester.schemas.base import MongoBaseResponse, PyObjectIdStr
 
 
 # ── Test Run ──────────────────────────────────────────────────────────────────
 
 class TestRunCreate(BaseModel):
-    """Body for POST /projects/{project_id}/runs.
-    spec_path removed — runs now use the spec already stored on the project.
-    """
+    """Body for POST /projects/{project_id}/runs."""
     base_url: str
     types: list[Literal["functional", "edge", "security", "ai"]] = ["functional"]
     enable_ai: bool = False
 
 
-class TestRunResponse(BaseModel):
+class TestRunResponse(MongoBaseResponse):
     """Returned by all test run endpoints."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    project_id: str
+    id: PyObjectIdStr
+    project_id: PyObjectIdStr
     status: str
     base_url: str
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    # Aggregate counts (computed by the route, not stored columns)
     total_cases: int | None = None
     passed_cases: int | None = None
     failed_cases: int | None = None
@@ -47,13 +43,11 @@ class TestRunStatusResponse(BaseModel):
 
 # ── Test Result ───────────────────────────────────────────────────────────────
 
-class TestResultResponse(BaseModel):
+class TestResultResponse(MongoBaseResponse):
     """Returned by GET /runs/{run_id}/results."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    test_run_id: str
-    test_case_id: str
+    id: PyObjectIdStr
+    test_run_id: PyObjectIdStr
+    test_case_id: PyObjectIdStr
     passed: bool
     status: str
     actual_status_code: int | None = None

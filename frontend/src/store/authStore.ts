@@ -14,10 +14,11 @@ interface AuthState {
   isLoading: boolean;
 
   // Actions
-  login:  (email: string, password: string) => Promise<void>;
+  init:     () => Promise<void>;
+  login:    (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, full_name: string, org_name?: string) => Promise<void>;
-  logout: () => Promise<void>;
-  fetchMe: () => Promise<void>;
+  logout:   () => Promise<void>;
+  fetchMe:  () => Promise<void>;
   setTokens: (access: string, refresh: string) => void;
 }
 
@@ -33,6 +34,14 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem('access_token', access);
         localStorage.setItem('refresh_token', refresh);
         set({ accessToken: access, isAuthenticated: true });
+      },
+
+      // Called once on app mount — restores session from persisted token
+      init: async () => {
+        const token = localStorage.getItem('access_token');
+        if (!token) return;
+        set({ accessToken: token, isAuthenticated: true });
+        await get().fetchMe();
       },
 
       login: async (email, password) => {
@@ -75,7 +84,11 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'specguard-auth',
-      partialize: state => ({ accessToken: state.accessToken, isAuthenticated: state.isAuthenticated }),
+      partialize: state => ({
+        accessToken: state.accessToken,
+        isAuthenticated: state.isAuthenticated,
+        user: state.user,
+      }),
     },
   ),
 );

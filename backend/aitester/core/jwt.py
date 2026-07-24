@@ -103,7 +103,12 @@ async def blacklist_token(jti: str, ttl_seconds: int) -> None:
     """
     try:
         import redis.asyncio as aioredis
-        client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        client = aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
         await client.setex(f"blacklist:{jti}", ttl_seconds, "1")
         await client.aclose()
     except Exception:
@@ -115,7 +120,12 @@ async def is_token_blacklisted(jti: str) -> bool:
     """Returns True if the JTI has been blacklisted in Redis."""
     try:
         import redis.asyncio as aioredis
-        client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        client = aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
         result = await client.get(f"blacklist:{jti}")
         await client.aclose()
         return result is not None

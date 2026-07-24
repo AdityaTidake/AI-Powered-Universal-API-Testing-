@@ -109,7 +109,7 @@ async def get_trends(
     project_ids = [p.id for p in projects]
 
     if not project_ids:
-        return [TrendPointResponse(date=d.strftime("%b %-d"), passed=0, failed=0) for d in days]
+        return [TrendPointResponse(date=f"{d.strftime('%b')} {d.day}", passed=0, failed=0) for d in days]
 
     runs   = await TestRun.find({"project_id": {"$in": project_ids}}).to_list()
     run_ids = [r.id for r in runs]
@@ -143,7 +143,7 @@ async def get_trends(
     result = []
     for d in days:
         key   = d.isoformat()
-        label = d.strftime("%b %d").lstrip("0") if hasattr(d, "strftime") else str(d)
+        label = f"{d.strftime('%b')} {d.day}" if hasattr(d, "strftime") else str(d)
         b     = buckets.get(key, {"passed": 0, "failed": 0})
         result.append(TrendPointResponse(date=label, passed=b["passed"], failed=b["failed"]))
 

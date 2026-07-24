@@ -1,19 +1,19 @@
 """
-Password hashing service using bcrypt via passlib.
+Password hashing using bcrypt directly (bypasses passlib's bcrypt 4.x incompatibility).
 
 SOLID: Single Responsibility — only handles password hashing and verification.
 Interface Segregation: Thin module, importable anywhere without pulling in DB/JWT.
 """
 
-from passlib.context import CryptContext
-
-# bcrypt with auto-upgrading hash rounds
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
 
 
 def hash_password(plain: str) -> str:
     """Hash a plaintext password using bcrypt. Returns the hashed string."""
-    return _pwd_context.hash(plain)
+    # bcrypt has a 72-byte limit; we truncate to avoid the passlib compat error.
+    password_bytes = plain.encode("utf-8")[:72]
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -22,4 +22,6 @@ def verify_password(plain: str, hashed: str) -> bool:
     Returns True if matching, False otherwise.
     Uses constant-time comparison to prevent timing attacks.
     """
-    return _pwd_context.verify(plain, hashed)
+    password_bytes = plain.encode("utf-8")[:72]
+    hashed_bytes = hashed.encode("utf-8")
+    return bcrypt.checkpw(password_bytes, hashed_bytes)

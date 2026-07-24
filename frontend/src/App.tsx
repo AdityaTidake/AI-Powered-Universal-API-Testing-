@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { useAuthStore } from './store/authStore';
 
 // Pages
 import LoginPage      from './pages/LoginPage';
@@ -15,6 +17,13 @@ import SettingsPage   from './pages/SettingsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
+  const init = useAuthStore(s => s.init);
+
+  // Re-hydrate user profile from stored token on every page load
+  useEffect(() => {
+    init();
+  }, [init]);
+
   return (
     <BrowserRouter>
       {/* Global toast notifications */}
