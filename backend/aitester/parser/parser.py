@@ -49,3 +49,14 @@ def parse_spec(spec_path_or_url: str) -> ParsedSpec:
 
     parser = OpenAPIParser(spec_dict)
     return parser.parse()
+
+
+def parse_spec_dict(spec_dict: dict) -> "ParsedSpec":
+    """
+    Parse an OpenAPI spec from an already-loaded Python dict.
+    Used when the spec is stored as JSONB on the Project model.
+    """
+    if not isinstance(spec_dict, dict):
+        raise SpecLoadError("Spec must be a JSON object (dict).")
+    parser = OpenAPIParser(spec_dict)
+    return parser.parse()

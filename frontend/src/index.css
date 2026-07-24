@@ -942,3 +942,24 @@ pre {
 .topbar-breadcrumb svg   { width: 14px; height: 14px; color: var(--color-text-muted); }
 
 .topbar-actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+
+/* ── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

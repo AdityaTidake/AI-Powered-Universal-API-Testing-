@@ -1,79 +1,165 @@
+/**
+ * DashboardPage — live stats, charts, and recent runs from the API.
+ * Falls back to skeleton loading states while fetching.
+ */
 import AppLayout from '../components/AppLayout';
 import {
-  Activity, CheckCircle, Clock, TrendingUp, FolderOpen, Play, AlertTriangle,
+  Activity, CheckCircle, Clock, TrendingUp, FolderOpen, Play, AlertTriangle, Loader2,
 } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, Legend,
 } from 'recharts';
+import { useDashboardStats, useTrends } from '../store/analyticsStore';
+import { useProjects } from '../store/projectsStore';
+import { useTestRuns } from '../store/testRunsStore';
+import type { TestRunStatus } from '../types';
 
-// ── Mock data (replace with API calls in Phase 3) ─────────────────────────────
-const TREND_DATA = [
-  { date: 'Jul 1',  passed: 42, failed: 5  },
-  { date: 'Jul 3',  passed: 58, failed: 8  },
-  { date: 'Jul 5',  passed: 71, failed: 3  },
-  { date: 'Jul 7',  passed: 65, failed: 12 },
-  { date: 'Jul 9',  passed: 89, failed: 4  },
-  { date: 'Jul 11', passed: 95, failed: 6  },
-  { date: 'Jul 13', passed: 103, failed: 2 },
-];
+// ── Skeleton block ─────────────────────────────────────────────────────────────
+function Skeleton({ width, height }: { width?: number | string; height?: number | string }) {
+  return (
+    <div style={{
+      width: width ?? '100%', height: height ?? 20,
+      background: 'var(--color-surface-alt)',
+      borderRadius: 6,
+      animation: 'pulse 1.6s ease infinite',
+    }} />
+  );
+}
 
-const RECENT_RUNS = [
-  { id: '1', project: 'Payment API',    status: 'COMPLETED', tests: 84,  passed: 81, time: '2m 14s', ago: '10 min ago' },
-  { id: '2', project: 'Auth Service',   status: 'FAILED',    tests: 32,  passed: 28, time: '45s',    ago: '1 hr ago'   },
-  { id: '3', project: 'Product API',    status: 'COMPLETED', tests: 120, passed: 120,time: '4m 02s', ago: '3 hr ago'   },
-  { id: '4', project: 'Notification API',status: 'RUNNING',  tests: 60,  passed: 34, time: '--',     ago: 'Just now'   },
-];
-
-const STAT_CARDS = [
-  {
-    label: 'Total Test Runs',
-    value: '1,284',
-    icon: Play,
-    trend: '+12%',
-    trendUp: true,
-    iconBg: 'var(--color-primary-muted)',
-    iconColor: 'var(--color-primary)',
-  },
-  {
-    label: 'Pass Rate',
-    value: '94.2%',
-    icon: CheckCircle,
-    trend: '+3.1%',
-    trendUp: true,
-    iconBg: 'var(--color-success-bg)',
-    iconColor: 'var(--color-success)',
-  },
-  {
-    label: 'Avg Latency',
-    value: '148ms',
-    icon: Clock,
-    trend: '-12ms',
-    trendUp: true,
-    iconBg: 'var(--color-info-bg)',
-    iconColor: 'var(--color-info)',
-  },
-  {
-    label: 'Active Projects',
-    value: '7',
-    icon: FolderOpen,
-    trend: '+2',
-    trendUp: true,
-    iconBg: 'var(--color-warning-bg)',
-    iconColor: 'var(--color-warning)',
-  },
-];
-
-function StatusBadge({ status }: { status: string }) {
+// ── Status badge ───────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: TestRunStatus }) {
   const map: Record<string, string> = {
-    COMPLETED: 'badge-success',
-    FAILED: 'badge-danger',
-    RUNNING: 'badge-info',
-    PENDING: 'badge-gray',
+    COMPLETED: 'badge-success', FAILED: 'badge-danger',
+    RUNNING: 'badge-info',      PENDING: 'badge-gray',
   };
   return <span className={`badge ${map[status] ?? 'badge-gray'}`}>{status}</span>;
 }
 
+// ── Recent runs across all projects ───────────────────────────────────────────
+function RecentRunsSection() {
+  const { data: projects } = useProjects();
+
+  // Pull runs from the first 4 projects and merge
+  const runsQueries = [0, 1, 2, 3].map(i => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const p = projects?.[i];
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return useTestRuns(p?.id);
+  });
+
+  const allRuns = runsQueries
+    .flatMap((q, i) =>
+      (q.data ?? []).map(r => ({
+        ...r,
+        projectName: projects?.[i]?.name ?? 'Unknown',
+      }))
+    )
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 8);
+
+  const isLoading = runsQueries.some(q => q.isLoading);
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
+        {[1, 2, 3].map(i => <Skeleton key={i} height={36} />)}
+      </div>
+    );
+  }
+
+  if (allRuns.length === 0) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-muted)' }}>
+        No test runs yet. Go to Projects to launch your first run.
+      </div>
+    );
+  }
+
+  return (
+    <div className="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Status</th>
+            <th>Tests</th>
+            <th>Pass Rate</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {allRuns.map(run => {
+            const passRate = run.total_cases
+              ? Math.round(((run.passed_cases ?? 0) / run.total_cases) * 100)
+              : null;
+            return (
+              <tr key={run.id}>
+                <td><span className="font-medium">{run.projectName}</span></td>
+                <td><StatusBadge status={run.status} /></td>
+                <td>{run.total_cases ?? '--'}</td>
+                <td>
+                  {passRate !== null
+                    ? (
+                      <div className="flex items-center gap-2">
+                        <div className="progress-bar-track" style={{ width: 80 }}>
+                          <div className="progress-bar-fill" style={{ width: `${passRate}%` }} />
+                        </div>
+                        <span className="text-sm">{passRate}%</span>
+                      </div>
+                    )
+                    : '--'}
+                </td>
+                <td className="text-muted text-sm">
+                  {new Date(run.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const { data: stats, isLoading: loadingStats } = useDashboardStats();
+  const { data: trends, isLoading: loadingTrends } = useTrends();
+
+  const statCards = [
+    {
+      label: 'Total Test Runs',
+      value: loadingStats ? null : stats?.total_runs.toLocaleString() ?? '—',
+      icon: Play,
+      iconBg: 'var(--color-primary-muted)',
+      iconColor: 'var(--color-primary)',
+    },
+    {
+      label: 'Pass Rate',
+      value: loadingStats ? null : stats != null ? `${stats.pass_rate}%` : '—',
+      icon: CheckCircle,
+      iconBg: 'var(--color-success-bg)',
+      iconColor: 'var(--color-success)',
+    },
+    {
+      label: 'Avg Latency',
+      value: loadingStats ? null : stats != null ? `${stats.avg_latency_ms}ms` : '—',
+      icon: Clock,
+      iconBg: 'var(--color-info-bg)',
+      iconColor: 'var(--color-info)',
+    },
+    {
+      label: 'Active Projects',
+      value: loadingStats ? null : stats?.total_projects.toLocaleString() ?? '—',
+      icon: FolderOpen,
+      iconBg: 'var(--color-warning-bg)',
+      iconColor: 'var(--color-warning)',
+    },
+  ];
+
+  const trendData = trends ?? [];
+
   return (
     <AppLayout title="Dashboard">
       {/* Header */}
@@ -90,25 +176,29 @@ export default function DashboardPage() {
 
       {/* Stat Cards */}
       <div className="grid-4" style={{ marginBottom: 32 }}>
-        {STAT_CARDS.map(({ label, value, icon: Icon, trend, trendUp, iconBg, iconColor }) => (
+        {statCards.map(({ label, value, icon: Icon, iconBg, iconColor }) => (
           <div key={label} className="stat-card">
             <div className="stat-card-header">
               <div>
                 <div className="stat-card-label">{label}</div>
-                <div className="stat-card-value" style={{ marginTop: 8 }}>{value}</div>
+                <div className="stat-card-value" style={{ marginTop: 8 }}>
+                  {value === null
+                    ? <Skeleton width={80} height={28} />
+                    : value}
+                </div>
               </div>
               <div className="stat-card-icon" style={{ background: iconBg }}>
                 <Icon size={22} style={{ color: iconColor }} />
               </div>
             </div>
             <div>
-              <span className={`stat-card-trend ${trendUp ? 'trend-up' : 'trend-down'}`}>
-                <TrendingUp size={11} />
-                {trend}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 8 }}>
-                vs last month
-              </span>
+              {loadingStats
+                ? <Skeleton width={120} height={14} />
+                : (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                    {stats?.runs_this_month ?? 0} / {stats?.plan_limit ?? '—'} runs this month
+                  </span>
+                )}
             </div>
           </div>
         ))}
@@ -126,32 +216,40 @@ export default function DashboardPage() {
             <Activity size={18} style={{ color: 'var(--color-primary)' }} />
           </div>
           <div className="card-body" style={{ paddingTop: 8 }}>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={TREND_DATA} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="passGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="var(--color-success)" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="failGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="var(--color-danger)" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="var(--color-danger)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-light)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid var(--color-border)', fontSize: 12 }} />
-                <Area type="monotone" dataKey="passed" name="Passed" stroke="var(--color-success)"
-                  fill="url(#passGrad)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="failed" name="Failed" stroke="var(--color-danger)"
-                  fill="url(#failGrad)" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {loadingTrends
+              ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 220 }}>
+                  <Loader2 size={28} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite' }} />
+                </div>
+              )
+              : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={trendData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="passGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="var(--color-success)" stopOpacity={0.18} />
+                        <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="failGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="var(--color-danger)" stopOpacity={0.18} />
+                        <stop offset="95%" stopColor="var(--color-danger)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-light)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
+                    <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
+                    <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid var(--color-border)', fontSize: 12 }} />
+                    <Area type="monotone" dataKey="passed" name="Passed" stroke="var(--color-success)"
+                      fill="url(#passGrad)" strokeWidth={2} dot={false} />
+                    <Area type="monotone" dataKey="failed" name="Failed" stroke="var(--color-danger)"
+                      fill="url(#failGrad)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
           </div>
         </div>
 
-        {/* Weekly Bar */}
+        {/* Weekly Bar Chart */}
         <div className="card">
           <div className="card-header">
             <div>
@@ -161,17 +259,25 @@ export default function DashboardPage() {
             <AlertTriangle size={18} style={{ color: 'var(--color-warning)' }} />
           </div>
           <div className="card-body" style={{ paddingTop: 8 }}>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={TREND_DATA} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-light)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid var(--color-border)', fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="passed" name="Passed" fill="var(--color-success)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="failed" name="Failed" fill="var(--color-danger)"  radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {loadingTrends
+              ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 220 }}>
+                  <Loader2 size={28} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite' }} />
+                </div>
+              )
+              : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={trendData.slice(-7)} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-light)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
+                    <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
+                    <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid var(--color-border)', fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="passed" name="Passed" fill="var(--color-success)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="failed" name="Failed" fill="var(--color-danger)"  radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
           </div>
         </div>
       </div>
@@ -182,42 +288,7 @@ export default function DashboardPage() {
           <h3 style={{ fontSize: '1rem' }}>Recent Test Runs</h3>
           <a href="/runs" className="btn btn-ghost btn-sm">View all</a>
         </div>
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Status</th>
-                <th>Tests</th>
-                <th>Pass Rate</th>
-                <th>Duration</th>
-                <th>When</th>
-              </tr>
-            </thead>
-            <tbody>
-              {RECENT_RUNS.map(run => (
-                <tr key={run.id}>
-                  <td><span className="font-medium">{run.project}</span></td>
-                  <td><StatusBadge status={run.status} /></td>
-                  <td>{run.tests}</td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="progress-bar-track" style={{ width: 80 }}>
-                        <div className="progress-bar-fill"
-                          style={{ width: `${Math.round(run.passed / run.tests * 100)}%` }} />
-                      </div>
-                      <span className="text-sm">
-                        {Math.round(run.passed / run.tests * 100)}%
-                      </span>
-                    </div>
-                  </td>
-                  <td><code>{run.time}</code></td>
-                  <td className="text-muted text-sm">{run.ago}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RecentRunsSection />
       </div>
     </AppLayout>
   );

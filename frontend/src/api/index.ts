@@ -3,7 +3,7 @@ import type {
   AuthTokens, LoginRequest, RegisterRequest, User,
   Project, ProjectCreate,
   TestRun, TestRunCreate, TestRunProgress, TestResult,
-  DashboardStats, TrendPoint, AIAnalysis,
+  DashboardStats, TrendPoint, CoverageProject,
 } from '../types';
 
 // ── Auth API ──────────────────────────────────────────────────────────────────
@@ -33,20 +33,19 @@ export const projectsAPI = {
 
 // ── Test Runs API ─────────────────────────────────────────────────────────────
 export const testRunsAPI = {
-  create:    (projectId: string, data: TestRunCreate) =>
+  create:  (projectId: string, data: TestRunCreate) =>
     apiClient.post<TestRun>(`/api/v1/projects/${projectId}/runs`, data),
-  list:      (projectId: string) =>
+  list:    (projectId: string) =>
     apiClient.get<TestRun[]>(`/api/v1/projects/${projectId}/runs`),
-  get:       (runId: string)     => apiClient.get<TestRun>(`/api/v1/runs/${runId}`),
-  progress:  (runId: string)     => apiClient.get<TestRunProgress>(`/api/v1/runs/${runId}/progress`),
-  results:   (runId: string)     => apiClient.get<TestResult[]>(`/api/v1/runs/${runId}/results`),
-  delete:    (runId: string)     => apiClient.delete(`/api/v1/runs/${runId}`),
-  aiAnalysis:(runId: string)     => apiClient.get<AIAnalysis>(`/api/v1/runs/${runId}/ai-analysis`),
+  get:     (runId: string)     => apiClient.get<TestRun>(`/api/v1/runs/${runId}`),
+  status:  (runId: string)     => apiClient.get<TestRunProgress>(`/api/v1/runs/${runId}/status`),
+  results: (runId: string)     => apiClient.get<TestResult[]>(`/api/v1/runs/${runId}/results`),
+  delete:  (runId: string)     => apiClient.delete(`/api/v1/runs/${runId}`),
 };
 
 // ── Analytics API ─────────────────────────────────────────────────────────────
 export const analyticsAPI = {
   dashboard: () => apiClient.get<DashboardStats>('/api/v1/analytics/dashboard'),
   trends:    () => apiClient.get<TrendPoint[]>('/api/v1/analytics/trends'),
-  coverage:  () => apiClient.get('/api/v1/analytics/coverage'),
+  coverage:  () => apiClient.get<CoverageProject[]>('/api/v1/analytics/coverage'),
 };

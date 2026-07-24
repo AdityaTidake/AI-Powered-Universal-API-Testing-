@@ -7,6 +7,7 @@ export interface User {
   plan: 'free' | 'pro' | 'enterprise';
   monthly_run_count: number;
   created_at: string;
+  updated_at: string;
 }
 
 export interface AuthTokens {
@@ -31,12 +32,12 @@ export interface RegisterRequest {
 export interface Project {
   id: string;
   name: string;
-  description?: string;
-  openapi_spec?: Record<string, unknown>;
+  description?: string | null;
+  openapi_spec?: Record<string, unknown> | null;
   owner_id: string;
+  org_id?: string | null;
   created_at: string;
   updated_at: string;
-  test_run_count?: number;
 }
 
 export interface ProjectCreate {
@@ -54,36 +55,47 @@ export interface TestRun {
   status: TestRunStatus;
   created_at: string;
   updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  // Aggregated counts (returned by the backend route)
+  total_cases?: number | null;
+  passed_cases?: number | null;
+  failed_cases?: number | null;
 }
 
 export interface TestRunCreate {
   base_url: string;
-  spec_path?: string;
-  types?: string[];
+  types?: Array<'functional' | 'edge' | 'security' | 'ai'>;
   enable_ai?: boolean;
 }
 
 export interface TestRunProgress {
   status: TestRunStatus;
-  completed: number;
-  total: number;
-  progress_pct: number;
+  total_cases?: number | null;
+  completed_cases?: number | null;
+  passed_cases?: number | null;
+  failed_cases?: number | null;
+  progress_pct?: number | null;
 }
 
 // ── Test Results ──────────────────────────────────────────────────────────────
 export interface TestResult {
   id: string;
+  test_run_id: string;
   test_case_id: string;
-  status: 'passed' | 'failed';
+  passed: boolean;
+  status: string;
+  actual_status_code?: number | null;
+  latency_ms: number;
   response_time_ms: number;
-  actual_status_code: number;
+  ai_failure_analysis?: Record<string, unknown> | null;
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 export interface DashboardStats {
   total_projects: number;
   total_runs: number;
-  pass_rate: number;
+  pass_rate: number;         // 0.0 – 100.0
   avg_latency_ms: number;
   runs_this_month: number;
   plan_limit: number;
@@ -93,6 +105,14 @@ export interface TrendPoint {
   date: string;
   passed: number;
   failed: number;
+}
+
+export interface CoverageProject {
+  project_id: string;
+  project_name: string;
+  endpoints_total: number;
+  endpoints_tested: number;
+  coverage_pct: number;
 }
 
 // ── AI Insights ───────────────────────────────────────────────────────────────
