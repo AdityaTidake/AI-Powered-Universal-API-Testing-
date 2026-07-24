@@ -1,8 +1,7 @@
-import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.parser.models import ParsedEndpoint
 
 
@@ -31,10 +30,16 @@ class BaseGenerator(ABC):
         body: dict[str, Any] | None = None,
         expected_schema: dict[str, Any] | None = None,
     ) -> TestCase:
-        """Helper to instantiate a TestCase model."""
+        """Helper to instantiate a TestCase model. Beanie auto-generates _id."""
+        from beanie import PydanticObjectId
+        run_id = (
+            self.test_run_id
+            if isinstance(self.test_run_id, PydanticObjectId)
+            else PydanticObjectId(self.test_run_id)
+        )
         return TestCase(
-            id=uuid.uuid4(),
-            test_run_id=self.test_run_id,
+            id=PydanticObjectId(),
+            test_run_id=run_id,
             category=category,
             endpoint=self.endpoint.path,
             method=self.endpoint.method,

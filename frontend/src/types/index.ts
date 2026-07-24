@@ -115,6 +115,19 @@ export interface CoverageProject {
   coverage_pct: number;
 }
 
+
+export interface AIInsightResponse {
+  id: string;
+  run_id: string;
+  endpoint: string;
+  root_cause: string;
+  suggested_fix: string;
+  confidence: number;
+  security_score: number;
+  owasp_issues: OWASPIssue[];
+  created_at: string;
+}
+
 // ── AI Insights ───────────────────────────────────────────────────────────────
 export interface AIAnalysis {
   run_id: string;

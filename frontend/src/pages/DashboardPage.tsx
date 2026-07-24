@@ -4,7 +4,7 @@
  */
 import AppLayout from '../components/AppLayout';
 import {
-  Activity, CheckCircle, Clock, TrendingUp, FolderOpen, Play, AlertTriangle, Loader2,
+  Activity, CheckCircle, Clock, FolderOpen, Play, AlertTriangle, Loader2,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,

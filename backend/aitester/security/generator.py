@@ -1,6 +1,6 @@
 import copy
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.generators.base import BaseGenerator
 from aitester.generators.functional import FunctionalGenerator
 from aitester.security.payloads.command_injection import COMMAND_INJECTION_PAYLOADS

@@ -1,5 +1,5 @@
 """Pydantic schemas for Analytics endpoints."""
-
+from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -24,3 +24,20 @@ class CoverageProjectResponse(BaseModel):
     endpoints_total: int
     endpoints_tested: int
     coverage_pct: float
+
+class OWASPIssue(BaseModel):
+    category: str
+    severity: str
+    description: str
+
+class AIInsightResponse(BaseModel):
+    id: str
+    run_id: str
+    endpoint: str
+    root_cause: str
+    suggested_fix: str
+    confidence: int
+    security_score: int
+    owasp_issues: list[OWASPIssue]
+    created_at: datetime
+

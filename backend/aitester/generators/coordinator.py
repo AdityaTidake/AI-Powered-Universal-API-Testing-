@@ -1,7 +1,7 @@
 import asyncio
 
 from aitester.ai.business_logic import BusinessLogicGenerator
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.generators.base import BaseGenerator
 from aitester.generators.edge import EdgeCaseGenerator
 from aitester.generators.functional import FunctionalGenerator

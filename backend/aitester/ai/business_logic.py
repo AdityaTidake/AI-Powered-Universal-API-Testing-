@@ -1,10 +1,10 @@
 import json
 from typing import Any
 
-from aitester.ai.client import GeminiClient
+from aitester.ai.client import BaseAIClient, get_ai_client
 from aitester.ai.prompts import BUSINESS_LOGIC_PROMPT
 from aitester.ai.validators import validate_business_logic_output
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.generators.base import BaseGenerator
 
 
@@ -13,9 +13,9 @@ class BusinessLogicGenerator(BaseGenerator):
     Generates business-logic specific test cases using the Gemini AI model.
     """
 
-    def __init__(self, endpoint: Any, test_run_id: str, ai_client: GeminiClient | None = None):
+    def __init__(self, endpoint: Any, test_run_id: str, ai_client: BaseAIClient | None = None):
         super().__init__(endpoint, test_run_id)
-        self.ai_client = ai_client or GeminiClient()
+        self.ai_client = ai_client or get_ai_client()
 
     def generate(self) -> list[TestCase]:
         """

@@ -3,7 +3,7 @@ from typing import Any
 
 from faker import Faker
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.generators.base import BaseGenerator
 
 fake = Faker()

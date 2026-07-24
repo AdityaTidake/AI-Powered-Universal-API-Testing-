@@ -3,7 +3,7 @@ import type {
   AuthTokens, LoginRequest, RegisterRequest, User,
   Project, ProjectCreate,
   TestRun, TestRunCreate, TestRunProgress, TestResult,
-  DashboardStats, TrendPoint, CoverageProject,
+  DashboardStats, TrendPoint, CoverageProject, AIInsightResponse,
 } from '../types';
 
 // ── Auth API ──────────────────────────────────────────────────────────────────
@@ -48,4 +48,5 @@ export const analyticsAPI = {
   dashboard: () => apiClient.get<DashboardStats>('/api/v1/analytics/dashboard'),
   trends:    () => apiClient.get<TrendPoint[]>('/api/v1/analytics/trends'),
   coverage:  () => apiClient.get<CoverageProject[]>('/api/v1/analytics/coverage'),
+  insights:  () => apiClient.get<AIInsightResponse[]>('/api/v1/analytics/insights'),
 };

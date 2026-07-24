@@ -21,6 +21,16 @@ By simply uploading an OpenAPI/Swagger specification, our platform leverages Lar
 
 ---
 
+## 🔍 Getting Your OpenAPI Spec
+
+When you build a backend using modern frameworks, they usually auto-generate this file for you:
+
+- **FastAPI (Python)**: Auto-generates it at `/openapi.json` (e.g., `http://localhost:8000/openapi.json`). Our backend uses this!
+- **Spring Boot (Java)**: Usually available at `/v3/api-docs` if using `springdoc-openapi`.
+- **NestJS / Express (Node)**: Available via Swagger plugins usually at `/api-docs-json` or `/swagger-json`.
+
+---
+
 ## 🏗️ System Architecture
 
 Our platform is designed for enterprise-grade scalability, utilizing a multi-tenant asynchronous architecture:

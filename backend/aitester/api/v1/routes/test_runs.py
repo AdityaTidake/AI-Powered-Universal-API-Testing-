@@ -98,10 +98,11 @@ async def _execute_test_run(
         await TestCase.insert_many(test_cases)  # type: ignore
 
         from aitester.executor.runner import AsyncTestRunner
-        runner  = AsyncTestRunner(base_url=base_url)
+        runner  = AsyncTestRunner(base_url=base_url, enable_ai=enable_ai)
         results = await runner.execute_all(test_cases)
 
-        await TestResult.insert_many(results)  # type: ignore
+        if results:
+            await TestResult.insert_many(results)  # type: ignore
 
         run = await TestRun.get(PydanticObjectId(test_run_id))
         if run:

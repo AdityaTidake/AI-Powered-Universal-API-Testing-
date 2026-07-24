@@ -14,6 +14,8 @@ from aitester.schemas.analytics import (
     CoverageProjectResponse,
     DashboardStatsResponse,
     TrendPointResponse,
+    AIInsightResponse,
+    OWASPIssue,
 )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -192,3 +194,74 @@ async def get_coverage(
         ))
 
     return coverage_list
+
+
+# ─── Insights ─────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/insights",
+    response_model=list[AIInsightResponse],
+    summary="Get recent AI insights (failure analysis) for the user's projects",
+)
+async def get_insights(
+    current_user: User = Depends(get_current_user),
+    limit: int = 10,
+) -> list[AIInsightResponse]:
+    from aitester.db.models import TestCase
+
+    projects = await Project.find(Project.owner_id == current_user.id).to_list()
+    project_ids = [p.id for p in projects]
+
+    if not project_ids:
+        return []
+
+    runs = await TestRun.find({"project_id": {"$in": project_ids}}).to_list()
+    run_ids = [r.id for r in runs]
+
+    if not run_ids:
+        return []
+
+    # Find test results that failed and have an ai_failure_analysis attached
+    results = await TestResult.find(
+        {"test_run_id": {"$in": run_ids}, "ai_failure_analysis": {"$ne": None}}
+    ).sort("-created_at").limit(limit).to_list()
+
+    insights = []
+    for res in results:
+        analysis = res.ai_failure_analysis or {}
+        # Fetch the test case to get the endpoint name
+        tc = await TestCase.get(res.test_case_id)
+        endpoint = tc.endpoint if tc else "Unknown Endpoint"
+
+        # Map Severity to OWASP for visual purposes
+        severity = analysis.get("severity", "medium")
+        is_sec = analysis.get("is_security_concern", False)
+        
+        owasp_issues = []
+        if is_sec:
+            owasp_issues.append(OWASPIssue(
+                category="Security Concern",
+                severity=severity,
+                description=analysis.get("explanation", "Security validation failed")[:100]
+            ))
+        elif severity in ["error", "critical"]:
+            owasp_issues.append(OWASPIssue(
+                category="Validation Error",
+                severity=severity,
+                description=analysis.get("explanation", "Input validation failed")[:100]
+            ))
+
+        insights.append(AIInsightResponse(
+            id=str(res.id),
+            run_id=str(res.test_run_id),
+            endpoint=endpoint,
+            root_cause=analysis.get("root_cause", "Unknown error"),
+            suggested_fix=analysis.get("suggested_fix", "No fix suggested"),
+            confidence=94, # Hardcoded for now unless we add it to schema
+            security_score=40 if is_sec else 85,
+            owasp_issues=owasp_issues,
+            created_at=res.created_at,
+        ))
+
+    return insights
+
