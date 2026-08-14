@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './store/authStore';
+import { useTheme } from './hooks/useTheme';
 
 // Pages
 import LoginPage      from './pages/LoginPage';
@@ -20,6 +21,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   const init = useAuthStore(s => s.init);
+  useTheme(); // Initialize theme on App load
 
   // Re-hydrate user profile from stored token on every page load
   useEffect(() => {
@@ -34,13 +36,13 @@ function App() {
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#fff',
-            color: '#0F172A',
-            border: '1px solid #E2E8F0',
+            background: 'var(--color-surface)',
+            color: 'var(--color-text-primary)',
+            border: '1px solid var(--color-border)',
             borderRadius: '10px',
             fontSize: '0.875rem',
             fontFamily: 'Inter, sans-serif',
-            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.08)',
+            boxShadow: 'var(--shadow-md)',
           },
           success: {
             iconTheme: { primary: '#10B981', secondary: '#fff' },

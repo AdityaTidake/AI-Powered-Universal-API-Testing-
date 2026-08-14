@@ -1,5 +1,6 @@
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, Sun, Moon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { useTheme } from '../hooks/useTheme';
 
 interface TopbarProps {
   title: string;
@@ -8,6 +9,7 @@ interface TopbarProps {
 
 export default function Topbar({ title, subtitle }: TopbarProps) {
   const { user } = useAuthStore();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <header className="topbar">
@@ -25,6 +27,15 @@ export default function Topbar({ title, subtitle }: TopbarProps) {
       </div>
 
       <div className="topbar-actions">
+        {/* Theme toggle */}
+        <button className="btn btn-ghost btn-icon" onClick={toggleTheme} title="Toggle Theme" aria-label="Toggle Theme">
+          {theme === 'dark' ? (
+            <Sun size={18} style={{ color: 'var(--color-text-secondary)' }} />
+          ) : (
+            <Moon size={18} style={{ color: 'var(--color-text-secondary)' }} />
+          )}
+        </button>
+
         {/* Search trigger */}
         <button className="btn btn-ghost btn-icon" title="Search" aria-label="Search">
           <Search size={18} style={{ color: 'var(--color-text-secondary)' }} />

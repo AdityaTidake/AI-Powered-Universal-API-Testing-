@@ -87,6 +87,41 @@
   --topbar-height:         60px;
 }
 
+[data-theme='dark'] {
+  --color-bg:           #0F172A;
+  --color-surface:      #1E293B;
+  --color-surface-alt:  #334155;
+  --color-border:       #334155;
+  --color-border-light: #1E293B;
+
+  /* Primary remains similar, but dark mode variants could be slightly adjusted */
+  --color-primary-bg:   rgba(124, 58, 237, 0.15);
+  --color-primary-muted:rgba(124, 58, 237, 0.25);
+
+  /* Text */
+  --color-text-primary:   #F8FAFC;
+  --color-text-secondary: #CBD5E1;
+  --color-text-muted:     #64748B;
+  --color-text-inverse:   #0F172A;
+
+  /* Status overrides for better contrast in dark mode */
+  --color-success-bg:     rgba(16, 185, 129, 0.15);
+  --color-warning-bg:     rgba(245, 158, 11, 0.15);
+  --color-danger-bg:      rgba(239, 68, 68, 0.15);
+  --color-info-bg:        rgba(59, 130, 246, 0.15);
+
+  /* Gradients */
+  --gradient-card:      linear-gradient(145deg, #1E293B 0%, #0F172A 100%);
+  --gradient-subtle:    linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(124, 58, 237, 0.05) 100%);
+
+  /* Shadows (less prominent in dark mode) */
+  --shadow-xs:    0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-sm:    0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --shadow-md:    0 4px 6px -1px rgb(0 0 0 / 0.4);
+  --shadow-lg:    0 10px 15px -3px rgb(0 0 0 / 0.5);
+  --shadow-xl:    0 20px 25px -5px rgb(0 0 0 / 0.5);
+}
+
 /* ── Reset & Base ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
