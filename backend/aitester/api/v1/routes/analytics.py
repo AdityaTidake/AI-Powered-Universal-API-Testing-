@@ -35,7 +35,7 @@ async def get_dashboard_stats(
     from aitester.core.config import settings as cfg
 
     # Project count
-    total_projects = await Project.find(Project.owner_id == current_user.id).count()
+    total_projects = await Project.find({"owner_id": current_user.id}).count()
 
     if total_projects == 0:
         return DashboardStatsResponse(
@@ -48,7 +48,7 @@ async def get_dashboard_stats(
         )
 
     # All project IDs for this user
-    projects = await Project.find(Project.owner_id == current_user.id).to_list()
+    projects = await Project.find({"owner_id": current_user.id}).to_list()
     project_ids = [p.id for p in projects]
 
     # Total runs
@@ -107,7 +107,7 @@ async def get_trends(
     today = datetime.now(UTC).date()
     days  = [today - timedelta(days=i) for i in range(13, -1, -1)]
 
-    projects   = await Project.find(Project.owner_id == current_user.id).to_list()
+    projects   = await Project.find({"owner_id": current_user.id}).to_list()
     project_ids = [p.id for p in projects]
 
     if not project_ids:
@@ -162,7 +162,7 @@ async def get_trends(
 async def get_coverage(
     current_user: User = Depends(get_current_user),
 ) -> list[CoverageProjectResponse]:
-    projects = await Project.find(Project.owner_id == current_user.id).to_list()
+    projects = await Project.find({"owner_id": current_user.id}).to_list()
 
     coverage_list = []
     for proj in projects:
@@ -209,7 +209,7 @@ async def get_insights(
 ) -> list[AIInsightResponse]:
     from aitester.db.models import TestCase
 
-    projects = await Project.find(Project.owner_id == current_user.id).to_list()
+    projects = await Project.find({"owner_id": current_user.id}).to_list()
     project_ids = [p.id for p in projects]
 
     if not project_ids:
@@ -236,7 +236,7 @@ async def get_insights(
         # Map Severity to OWASP for visual purposes
         severity = analysis.get("severity", "medium")
         is_sec = analysis.get("is_security_concern", False)
-        
+
         owasp_issues = []
         if is_sec:
             owasp_issues.append(OWASPIssue(
@@ -251,14 +251,34 @@ async def get_insights(
                 description=analysis.get("explanation", "Input validation failed")[:100]
             ))
 
+        # Confidence: use stored value, or derive a heuristic from severity
+        raw_confidence = analysis.get("confidence", None)
+        if raw_confidence is not None:
+            try:
+                confidence = max(0, min(100, int(float(raw_confidence))))
+            except (ValueError, TypeError):
+                confidence = 75
+        else:
+            confidence = 60 if severity in ("critical", "error") else 80
+
+        # Security score: use stored value, or derive from security concern flag
+        raw_security_score = analysis.get("security_score", None)
+        if raw_security_score is not None:
+            try:
+                security_score = max(0, min(100, int(float(raw_security_score))))
+            except (ValueError, TypeError):
+                security_score = 50
+        else:
+            security_score = 35 if is_sec else 80
+
         insights.append(AIInsightResponse(
             id=str(res.id),
             run_id=str(res.test_run_id),
             endpoint=endpoint,
             root_cause=analysis.get("root_cause", "Unknown error"),
             suggested_fix=analysis.get("suggested_fix", "No fix suggested"),
-            confidence=94, # Hardcoded for now unless we add it to schema
-            security_score=40 if is_sec else 85,
+            confidence=confidence,
+            security_score=security_score,
             owasp_issues=owasp_issues,
             created_at=res.created_at,
         ))

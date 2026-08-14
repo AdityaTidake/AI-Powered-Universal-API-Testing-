@@ -18,7 +18,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from aitester.core.jwt import TokenError, decode_token, is_token_blacklisted, TokenType
 from aitester.db.models import User
 
-__all__ = ["get_current_user", "require_active_user", "require_pro_plan", "require_run_quota"]
+__all__ = [
+    "get_current_user",
+    "require_active_user",
+    "require_pro_plan",
+    "require_run_quota",
+    "get_owned_project",
+]
 
 # Bearer scheme — auto-extracts "Authorization: Bearer <token>"
 _bearer = HTTPBearer(auto_error=True)
@@ -105,3 +111,25 @@ async def require_run_quota(
             },
         )
     return current_user
+
+
+# ─── Shared Resource Dependencies ─────────────────────────────────────────────
+
+async def get_owned_project(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Shared dependency: fetches a Project by ID and asserts the current user owns it.
+    Raises HTTP 404 (not 403) to avoid leaking existence of other users' projects.
+    Import the Project model inside to avoid circular imports.
+    """
+    from aitester.db.models import Project
+
+    try:
+        project = await Project.get(PydanticObjectId(project_id))
+    except Exception:
+        project = None
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+    return project

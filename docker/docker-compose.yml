@@ -1,19 +1,34 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # SpecGuard AI — Development Infrastructure Stack
-# Services: PostgreSQL 16 + Redis 7 + Backend (FastAPI) + Frontend (Vite)
+# Services: MongoDB 6 + Redis 7 + Backend (FastAPI) + Celery Worker + Celery Beat
 #
 # Usage:
 #   Start:   docker compose -f docker/docker-compose.yml up -d
 #   Stop:    docker compose -f docker/docker-compose.yml down
 #   Logs:    docker compose -f docker/docker-compose.yml logs -f
 #   Reset:   docker compose -f docker/docker-compose.yml down -v
+#
+# NOTE: The image is built ONCE by the `backend` service.
+#       celery_worker and celery_beat reuse the same built image.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Shared environment variables — reused across all backend services.
+x-backend-env: &backend-env
+  MONGODB_URL: mongodb://mongodb:27017
+  MONGODB_DB_NAME: specguard
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  ENVIRONMENT: production
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme-replace-in-production}
+  ALLOWED_ORIGINS: '["http://localhost:5173","http://localhost:80"]'
 
 services:
 
-  # ─── FastAPI Backend ─────────────────────────────────────────────────────────
+  # ─── FastAPI Backend ──────────────────────────────────────────────────────
+  # This is the ONLY service that builds the image.
+  # celery_worker and celery_beat reference the resulting image by name.
   backend:
     build:
       context: ../backend
@@ -23,16 +38,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://aitester:password@postgres:5432/aitester
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - ENVIRONMENT=production
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme-replace-in-production}
-      - ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:80"]
+      <<: *backend-env
     depends_on:
-      postgres:
+      mongodb:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -46,31 +54,78 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  # ─── PostgreSQL 16 ───────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: specguard_postgres
+  # ─── Celery Worker ────────────────────────────────────────────────────────
+  # Reuses the image built by the backend service — no separate build step.
+  # Executes test runs offloaded from the API (execute_test_run task).
+  celery_worker:
+    image: specguard-backend:latest
+    pull_policy: never
+    container_name: specguard_celery_worker
+    command: >
+      celery -A aitester.worker worker
+      --loglevel=info
+      --queues=test_runs,celery
+      --autoscale=8,2
+      --hostname=worker@%h
+    environment:
+      <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - specguard-net
+    restart: unless-stopped
+
+  # ─── Celery Beat (scheduler) ──────────────────────────────────────────────
+  # Reuses the image built by the backend service — no separate build step.
+  # Triggers periodic tasks (monthly quota reset, stale-run cleanup).
+  # IMPORTANT: Run exactly ONE instance of this service.
+  celery_beat:
+    image: specguard-backend:latest
+    pull_policy: never
+    container_name: specguard_celery_beat
+    command: >
+      celery -A aitester.worker beat
+      --loglevel=info
+      --schedule=/tmp/celerybeat-schedule
+    environment:
+      <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - specguard-net
+    restart: unless-stopped
+
+  # ─── MongoDB 6 ────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:6
+    container_name: specguard_mongodb
     restart: unless-stopped
     environment:
-      POSTGRES_DB: aitester
-      POSTGRES_USER: aitester
-      POSTGRES_PASSWORD: password
-      PGDATA: /var/lib/postgresql/data/pgdata
+      MONGO_INITDB_DATABASE: specguard
     ports:
-      - "15432:5432"
+      - "27017:27017"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - mongodata:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aitester -d aitester"]
-      interval: 5s
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })", "--quiet"]
+      interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 15s
     networks:
       - specguard-net
 
-  # ─── Redis 7 ─────────────────────────────────────────────────────────────────
+  # ─── Redis 7 ──────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: specguard_redis
@@ -96,7 +151,7 @@ services:
 
 # ─── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
-  pgdata:
+  mongodata:
     driver: local
   redisdata:
     driver: local

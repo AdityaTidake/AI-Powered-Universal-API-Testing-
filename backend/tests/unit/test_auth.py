@@ -62,7 +62,7 @@ class TestJWT:
         from aitester.core.jwt import create_access_token, decode_token, TokenType, TokenError
         uid = uuid.uuid4()
         token = create_access_token(uid)
-        with pytest.raises(TokenError, match="wrong_type"):
+        with pytest.raises(TokenError, match="Expected"):
             decode_token(token, TokenType.REFRESH)
 
     def test_tampered_token_raises_token_error(self):
@@ -75,7 +75,7 @@ class TestJWT:
         from aitester.core.jwt import create_access_token, get_user_id_from_token
         uid = uuid.uuid4()
         token = create_access_token(uid)
-        assert get_user_id_from_token(token) == uid
+        assert get_user_id_from_token(token) == str(uid)
 
     def test_token_contains_jti(self):
         from aitester.core.jwt import create_access_token, decode_token, TokenType
@@ -125,83 +125,94 @@ class TestAuthSchemas:
         assert tr.access_token == "abc"
 
 
-# ─── AuthService unit tests (DB mocked) ──────────────────────────────────────
+# ─── AuthService unit tests (Beanie mocked) ──────────────────────────────────
 
 class TestAuthService:
-    @pytest.fixture
-    def mock_db(self):
-        db = AsyncMock()
-        db.scalar = AsyncMock(return_value=None)   # no existing user
-        db.flush  = AsyncMock()
-        db.commit = AsyncMock()
-        db.refresh = AsyncMock()
-        db.add    = lambda x: None
-        return db
+    """Test AuthService.register/login against a mocked Beanie layer."""
 
     @pytest.mark.asyncio
-    async def test_register_returns_tokens(self, mock_db):
+    @patch("aitester.services.auth_service.User.find_one", new_callable=AsyncMock)
+    @patch("aitester.services.auth_service.User.insert", new_callable=AsyncMock)
+    async def test_register_returns_tokens(self, mock_insert, mock_find_one):
         from aitester.schemas.auth import RegisterRequest
         from aitester.services.auth_service import AuthService
+        from beanie import PydanticObjectId
+        from unittest.mock import MagicMock, patch
 
-        svc = AuthService(mock_db)
-        payload = RegisterRequest(
-            email="new@example.com",
-            password="strongpass1",
-            full_name="New User",
-        )
-        result = await svc.register(payload)
+        mock_find_one.return_value = None  # no duplicate
+
+        # Patch the User class itself in auth_service so no Beanie __init__ runs
+        fake_user = MagicMock()
+        fake_user.id = PydanticObjectId()
+        fake_user.insert = AsyncMock()
+
+        with patch("aitester.services.auth_service.User", return_value=fake_user) as MockUser:
+            MockUser.find_one = AsyncMock(return_value=None)
+            result = await AuthService.register(RegisterRequest(
+                email="new@example.com",
+                password="strongpass1",
+                full_name="New User",
+            ))
         assert result.access_token
         assert result.refresh_token
         assert result.token_type == "bearer"
 
     @pytest.mark.asyncio
-    async def test_register_duplicate_email_raises(self, mock_db):
-        from aitester.db.models.user import User
+    @patch("aitester.services.auth_service.User.find_one", new_callable=AsyncMock)
+    async def test_register_duplicate_email_raises(self, mock_find_one):
+        from aitester.db.models import User
         from aitester.schemas.auth import RegisterRequest
         from aitester.services.auth_service import AuthService, AuthError
+        from beanie import PydanticObjectId
+        from unittest.mock import MagicMock
 
-        # Simulate existing user found
-        mock_db.scalar = AsyncMock(return_value=User(
-            id=uuid.uuid4(), email="existing@example.com",
-            hashed_password="x", full_name="Existing",
-        ))
-        svc = AuthService(mock_db)
+        existing = MagicMock(spec=User)
+        existing.email = "existing@example.com"
+        mock_find_one.return_value = existing
+
         with pytest.raises(AuthError, match="already exists"):
-            await svc.register(RegisterRequest(
+            await AuthService.register(RegisterRequest(
                 email="existing@example.com",
                 password="strongpass1",
                 full_name="Test",
             ))
 
     @pytest.mark.asyncio
-    async def test_login_wrong_password_raises(self, mock_db):
-        from aitester.db.models.user import User
+    @patch("aitester.services.auth_service.User.find_one", new_callable=AsyncMock)
+    async def test_login_wrong_password_raises(self, mock_find_one):
+        from aitester.db.models import User
         from aitester.core.password import hash_password
         from aitester.schemas.auth import LoginRequest
         from aitester.services.auth_service import AuthService, AuthError
+        from beanie import PydanticObjectId
+        from unittest.mock import MagicMock
 
-        mock_db.scalar = AsyncMock(return_value=User(
-            id=uuid.uuid4(), email="u@example.com",
-            hashed_password=hash_password("correct_pass"),
-            full_name="User", is_active=True,
-        ))
-        svc = AuthService(mock_db)
+        user = MagicMock(spec=User)
+        user.email = "u@example.com"
+        user.hashed_password = hash_password("correct_pass")
+        user.is_active = True
+        mock_find_one.return_value = user
+
         with pytest.raises(AuthError, match="Invalid email or password"):
-            await svc.login(LoginRequest(email="u@example.com", password="wrong_pass"))
+            await AuthService.login(LoginRequest(email="u@example.com", password="wrong_pass"))
 
     @pytest.mark.asyncio
-    async def test_login_success_returns_tokens(self, mock_db):
-        from aitester.db.models.user import User
+    @patch("aitester.services.auth_service.User.find_one", new_callable=AsyncMock)
+    async def test_login_success_returns_tokens(self, mock_find_one):
+        from aitester.db.models import User
         from aitester.core.password import hash_password
         from aitester.schemas.auth import LoginRequest
         from aitester.services.auth_service import AuthService
+        from beanie import PydanticObjectId
+        from unittest.mock import MagicMock
 
-        mock_db.scalar = AsyncMock(return_value=User(
-            id=uuid.uuid4(), email="u@example.com",
-            hashed_password=hash_password("correct_pass"),
-            full_name="User", is_active=True,
-        ))
-        svc = AuthService(mock_db)
-        result = await svc.login(LoginRequest(email="u@example.com", password="correct_pass"))
+        user = MagicMock(spec=User)
+        user.id = PydanticObjectId()
+        user.email = "u@example.com"
+        user.hashed_password = hash_password("correct_pass")
+        user.is_active = True
+        mock_find_one.return_value = user
+
+        result = await AuthService.login(LoginRequest(email="u@example.com", password="correct_pass"))
         assert result.access_token
         assert result.refresh_token

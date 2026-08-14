@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
+    # ─── SMTP Email Notifications ─────────────────────────────────────────────
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAILS_FROM_EMAIL: str = "noreply@specguard.ai"
+
     # ─── Usage / Plan Limits ──────────────────────────────────────────────────
     FREE_PLAN_MONTHLY_RUNS: int = 10
     FREE_PLAN_MAX_ENDPOINTS: int = 20

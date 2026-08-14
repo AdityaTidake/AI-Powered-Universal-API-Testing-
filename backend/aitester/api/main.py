@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from aitester.api.middleware import RequestTimingMiddleware
-from aitester.api.v1.routes import analytics, auth, projects, reports, test_runs
+from aitester.api.v1.routes import analytics, auth, orgs, projects, reports, test_runs
 from aitester.core.config import settings
 from aitester.core.exceptions import AITesterError, RecordNotFoundError
 from aitester.db.init import init_db
@@ -61,7 +61,7 @@ def create_application() -> FastAPI:
     # ── Middleware ────────────────────────────────────────────────────────────
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -72,6 +72,7 @@ def create_application() -> FastAPI:
     API_PREFIX = "/api/v1"
     application.include_router(auth.router,      prefix=API_PREFIX)
     application.include_router(projects.router,  prefix=API_PREFIX)
+    application.include_router(orgs.router,      prefix=API_PREFIX)
     application.include_router(test_runs.router, prefix=API_PREFIX)
     application.include_router(reports.router,   prefix=API_PREFIX)
     application.include_router(analytics.router, prefix=API_PREFIX)

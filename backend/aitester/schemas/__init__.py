@@ -1,8 +1,10 @@
 """aitester.schemas — all Pydantic request/response models."""
 
 from aitester.schemas.analytics import (
+    AIInsightResponse,
     CoverageProjectResponse,
     DashboardStatsResponse,
+    OWASPIssue,
     TrendPointResponse,
 )
 from aitester.schemas.auth import (
@@ -12,7 +14,8 @@ from aitester.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
-from aitester.schemas.project import ProjectCreate, ProjectResponse
+from aitester.schemas.org import OrgCreate, OrgMemberAdd, OrgResponse, OrgUpdate
+from aitester.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from aitester.schemas.test_run import (
     TestResultResponse,
     TestRunCreate,
@@ -29,7 +32,13 @@ __all__ = [
     "UserResponse",
     # Projects
     "ProjectCreate",
+    "ProjectUpdate",
     "ProjectResponse",
+    # Organizations
+    "OrgCreate",
+    "OrgUpdate",
+    "OrgMemberAdd",
+    "OrgResponse",
     # Test Runs
     "TestRunCreate",
     "TestRunResponse",
@@ -39,4 +48,6 @@ __all__ = [
     "DashboardStatsResponse",
     "TrendPointResponse",
     "CoverageProjectResponse",
+    "AIInsightResponse",
+    "OWASPIssue",
 ]

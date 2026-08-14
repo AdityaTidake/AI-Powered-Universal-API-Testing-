@@ -12,6 +12,8 @@ import TestRunsPage   from './pages/TestRunsPage';
 import AnalyticsPage  from './pages/AnalyticsPage';
 import AIInsightsPage from './pages/AIInsightsPage';
 import SettingsPage   from './pages/SettingsPage';
+import OrgsPage       from './pages/OrgsPage';
+import RunDetailsPage from './pages/RunDetailsPage';
 
 // Guards
 import ProtectedRoute from './components/ProtectedRoute';
@@ -63,6 +65,12 @@ function App() {
         } />
         <Route path="/runs" element={
           <ProtectedRoute><TestRunsPage /></ProtectedRoute>
+        } />
+        <Route path="/runs/:id" element={
+          <ProtectedRoute><RunDetailsPage /></ProtectedRoute>
+        } />
+        <Route path="/orgs" element={
+          <ProtectedRoute><OrgsPage /></ProtectedRoute>
         } />
         <Route path="/analytics" element={
           <ProtectedRoute><AnalyticsPage /></ProtectedRoute>

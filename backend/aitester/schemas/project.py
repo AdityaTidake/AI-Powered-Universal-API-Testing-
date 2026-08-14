@@ -14,6 +14,12 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(None, max_length=2000)
 
 
+class ProjectUpdate(BaseModel):
+    """Body for PATCH /projects/{id} — all fields optional."""
+    name: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=2000)
+
+
 class ProjectResponse(MongoBaseResponse):
     """Returned by project endpoints."""
     id: PyObjectIdStr

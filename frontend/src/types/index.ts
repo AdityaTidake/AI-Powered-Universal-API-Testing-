@@ -166,3 +166,26 @@ export interface PaginatedResponse<T> {
   page: number;
   size: number;
 }
+
+// ── Organizations ─────────────────────────────────────────────────────────────
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  member_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgCreate {
+  name: string;
+}
+
+export interface OrgUpdate {
+  name?: string;
+}
+
+export interface OrgMemberAdd {
+  user_id: string;
+}

@@ -5,26 +5,13 @@ All endpoints require a valid JWT. Projects are scoped to the authenticated user
 
 from datetime import UTC, datetime
 
-from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
-from aitester.api.dependencies import get_current_user
+from aitester.api.dependencies import get_current_user, get_owned_project
 from aitester.db.models import Project, User
-from aitester.schemas.project import ProjectCreate, ProjectResponse
+from aitester.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
-
-
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async def _get_owned_project(project_id: str, current_user: User) -> Project:
-    try:
-        project = await Project.get(PydanticObjectId(project_id))
-    except Exception:
-        project = None
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    return project
 
 
 # ─── Create ───────────────────────────────────────────────────────────────────
@@ -63,7 +50,7 @@ async def list_projects(
 ) -> list[Project]:
     """Returns only projects owned by the authenticated user."""
     return await (
-        Project.find(Project.owner_id == current_user.id)
+        Project.find({"owner_id": current_user.id})
         .sort("-created_at")
         .skip(skip)
         .limit(limit)
@@ -79,10 +66,34 @@ async def list_projects(
     summary="Get a single project",
 )
 async def get_project(
-    project_id: str,
-    current_user: User = Depends(get_current_user),
+    project: Project = Depends(get_owned_project),
 ) -> Project:
-    return await _get_owned_project(project_id, current_user)
+    return project
+
+
+# ─── Update ───────────────────────────────────────────────────────────────────
+
+@router.patch(
+    "/{project_id}",
+    response_model=ProjectResponse,
+    summary="Update a project's name or description",
+)
+async def update_project(
+    update_in: ProjectUpdate,
+    project: Project = Depends(get_owned_project),
+) -> Project:
+    """Partially updates a project. Only provided fields are changed."""
+    changed = False
+    if update_in.name is not None:
+        project.name = update_in.name
+        changed = True
+    if update_in.description is not None:
+        project.description = update_in.description
+        changed = True
+    if changed:
+        project.updated_at = datetime.now(UTC)
+        await project.save()
+    return project
 
 
 # ─── Delete ───────────────────────────────────────────────────────────────────
@@ -93,10 +104,8 @@ async def get_project(
     summary="Delete a project",
 )
 async def delete_project(
-    project_id: str,
-    current_user: User = Depends(get_current_user),
+    project: Project = Depends(get_owned_project),
 ) -> None:
-    project = await _get_owned_project(project_id, current_user)
     await project.delete()
 
 
@@ -108,15 +117,13 @@ async def delete_project(
     summary="Upload an OpenAPI spec (YAML or JSON) to a project",
 )
 async def upload_spec(
-    project_id: str,
     file: UploadFile = File(..., description="OpenAPI YAML or JSON file"),
-    current_user: User = Depends(get_current_user),
+    project: Project = Depends(get_owned_project),
 ) -> Project:
     """Parses the spec file and stores it as a document field on the project."""
     import json
     import yaml
 
-    project = await _get_owned_project(project_id, current_user)
     content = await file.read()
     filename = (file.filename or "").lower()
 
@@ -130,6 +137,18 @@ async def upload_spec(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Failed to parse spec: {exc}",
         ) from exc
+
+    if not isinstance(spec_dict, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Parsed spec must be a JSON/YAML object (dictionary).",
+        )
+
+    if "openapi" not in spec_dict and "swagger" not in spec_dict:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File is missing 'openapi' or 'swagger' top-level key. Not a valid OpenAPI specification.",
+        )
 
     project.openapi_spec = spec_dict
     project.updated_at = datetime.now(UTC)

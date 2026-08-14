@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/runs',       label: 'Test Runs',   icon: Play },
   { to: '/analytics',  label: 'Analytics',   icon: BarChart2 },
   { to: '/ai-insights',label: 'AI Insights', icon: Brain },
+  { to: '/orgs',       label: 'Organizations', icon: Shield },
 ];
 
 const BOTTOM_ITEMS = [

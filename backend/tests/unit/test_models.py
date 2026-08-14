@@ -1,138 +1,97 @@
 """
-Stage 04 Database Models Tests.
+Database Models Tests — Beanie/MongoDB edition.
 
-Verifies table creation and SQLAlchemy relationships.
+Tests verify the Beanie Document schema definitions are structurally correct.
+Since we use MongoDB/Beanie, these tests check field existence and defaults
+without requiring a live DB connection.
 """
 
 import pytest
+from datetime import datetime
 
 
-# Fixture to provide an async session for these tests
-@pytest.fixture
-async def db_session():
-    from aitester.db.base import Base
-    from aitester.db.session import AsyncSessionLocal, engine
+class TestBeanieModelDefaults:
+    """Verify Beanie models have correct field definitions and defaults."""
 
-    # Note: tests in this suite run against the real dev database
-    # (aitester) which is fine for local dev gate checks.
-    # In a real CI, we'd use a separate test DB.
-    async with engine.begin() as conn:
-        # For tests, we don't drop tables, we rely on rollbacks
-        # but just to ensure tables exist:
-        await conn.run_sync(Base.metadata.create_all)
+    def test_user_model_fields(self):
+        """User model should have all required fields with correct defaults."""
+        from aitester.db.models import User
+        # Check that required fields exist in model annotations
+        fields = User.model_fields
+        assert "email" in fields
+        assert "hashed_password" in fields
+        assert "full_name" in fields
+        assert "is_active" in fields
+        assert "plan" in fields
+        assert "monthly_run_count" in fields
 
-    async with AsyncSessionLocal() as session:
-        yield session
-        await session.rollback()
-    await engine.dispose()
+    def test_user_model_defaults(self):
+        """User defaults should be sensible."""
+        from aitester.db.models import User
+        fields = User.model_fields
+        # plan defaults to "free"
+        assert fields["plan"].default == "free"
+        # is_active defaults to True
+        assert fields["is_active"].default is True
+        # monthly_run_count defaults to 0
+        assert fields["monthly_run_count"].default == 0
 
+    def test_organization_model_fields(self):
+        """Organization model should have owner_id and member_ids."""
+        from aitester.db.models import Organization
+        fields = Organization.model_fields
+        assert "name" in fields
+        assert "slug" in fields
+        assert "owner_id" in fields
+        assert "member_ids" in fields
 
-class TestDatabaseModels:
-    @pytest.mark.asyncio
-    async def test_create_project_and_test_run(self, db_session):
-        """Test creating a Project and related TestRun."""
-        from aitester.db.models import Project, TestRun
+    def test_project_model_fields(self):
+        """Project model should have owner_id and optional org_id."""
+        from aitester.db.models import Project
+        fields = Project.model_fields
+        assert "name" in fields
+        assert "owner_id" in fields
+        assert "org_id" in fields
+        assert "openapi_spec" in fields
 
-        # Create project
-        project = Project(name="Test API", description="API for testing")
-        db_session.add(project)
-        await db_session.flush()
+    def test_test_run_model_fields(self):
+        """TestRun should have project_id, base_url, and status."""
+        from aitester.db.models import TestRun
+        fields = TestRun.model_fields
+        assert "project_id" in fields
+        assert "base_url" in fields
+        assert "status" in fields
+        assert fields["status"].default == "PENDING"
 
-        # Create related test run
-        run = TestRun(project_id=project.id, base_url="http://localhost:8000")
-        db_session.add(run)
-        await db_session.flush()
+    def test_test_case_model_fields(self):
+        """TestCase should have test_run_id, category, endpoint, method."""
+        from aitester.db.models import TestCase
+        fields = TestCase.model_fields
+        assert "test_run_id" in fields
+        assert "category" in fields
+        assert "endpoint" in fields
+        assert "method" in fields
 
-        assert project.id is not None
-        assert run.id is not None
-        assert run.project_id == project.id
-        assert run.status == "PENDING"
-        assert run.created_at is not None
+    def test_test_result_model_fields(self):
+        """TestResult should have passed, latency_ms, and ai_failure_analysis."""
+        from aitester.db.models import TestResult
+        fields = TestResult.model_fields
+        assert "test_run_id" in fields
+        assert "test_case_id" in fields
+        assert "passed" in fields
+        assert "latency_ms" in fields
+        assert "ai_failure_analysis" in fields
+        # Default not passed
+        assert fields["passed"].default is False
 
-    @pytest.mark.asyncio
-    async def test_create_full_hierarchy(self, db_session):
-        """Test creating Project -> TestRun -> TestCase -> TestResult."""
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-
-        from aitester.db.models import Project, TestCase, TestResult, TestRun
-
-        project = Project(name="Hierarchy Test", openapi_spec={"openapi": "3.0.0"})
-        db_session.add(project)
-        await db_session.flush()
-
-        run = TestRun(project_id=project.id, base_url="http://api.com")
-        db_session.add(run)
-        await db_session.flush()
-
-        tc = TestCase(
-            test_run_id=run.id,
-            category="FUNCTIONAL",
-            endpoint="/users",
-            method="GET",
-            expected_status_code=200,
+    def test_collection_names(self):
+        """All Beanie documents should declare their collection name."""
+        from aitester.db.models import (
+            User, Organization, Project, TestRun, TestCase, TestResult
         )
-        db_session.add(tc)
-        await db_session.flush()
-
-        result = TestResult(
-            test_run_id=run.id,
-            test_case_id=tc.id,
-            passed=True,
-            actual_status_code=200,
-            latency_ms=15.5,
-        )
-        db_session.add(result)
-        await db_session.flush()
-
-        # Fetch with relationships
-        stmt = (
-            select(Project)
-            .where(Project.id == project.id)
-            .options(
-                selectinload(Project.test_runs)
-                .selectinload(TestRun.test_cases)
-                .selectinload(TestCase.test_results)
-            )
-        )
-        res = await db_session.execute(stmt)
-        fetched_project = res.scalar_one()
-
-        assert len(fetched_project.test_runs) == 1
-        fetched_run = fetched_project.test_runs[0]
-        assert len(fetched_run.test_cases) == 1
-        fetched_tc = fetched_run.test_cases[0]
-        assert len(fetched_tc.test_results) == 1
-        assert fetched_tc.test_results[0].passed is True
-
-    @pytest.mark.asyncio
-    async def test_report_model(self, db_session):
-        """Test creating a Report attached to a TestRun."""
-        from aitester.db.models import Project, Report, TestRun
-
-        project = Project(name="Report API")
-        db_session.add(project)
-        await db_session.flush()
-
-        run = TestRun(project_id=project.id, base_url="http://test.com")
-        db_session.add(run)
-        await db_session.flush()
-
-        report = Report(
-            test_run_id=run.id,
-            total_tests=10,
-            passed_tests=8,
-            failed_tests=2,
-            security_score=95.5,
-            ai_executive_summary={"summary": "Looks good", "risk_level": "LOW"}
-        )
-        db_session.add(report)
-        await db_session.flush()
-        await db_session.refresh(report)
-
-        assert report.id is not None
-        assert report.security_score == 95.5
-        assert report.ai_executive_summary is not None, (
-            "ai_executive_summary was None after flush — check DB driver / JSONB support"
-        )
-        assert report.ai_executive_summary["risk_level"] == "LOW"
+        assert User.Settings.name == "users"
+        assert Organization.Settings.name == "organizations"
+        assert Project.Settings.name == "projects"
+        assert TestRun.Settings.name == "test_runs"
+        assert TestCase.Settings.name == "test_cases"
+        assert TestResult.Settings.name == "test_results"

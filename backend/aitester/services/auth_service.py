@@ -50,7 +50,7 @@ class AuthService:
         Create a new user account.
         Raises AuthError if the email is already registered.
         """
-        existing = await User.find_one(User.email == payload.email)
+        existing = await User.find_one({"email": payload.email})
         if existing:
             raise AuthError(
                 "An account with this email already exists.",
@@ -89,7 +89,7 @@ class AuthService:
             details={"hint": "Check credentials and try again."},
         )
 
-        user = await User.find_one(User.email == payload.email)
+        user = await User.find_one({"email": payload.email})
         if not user or not user.is_active:
             raise _generic_error
 

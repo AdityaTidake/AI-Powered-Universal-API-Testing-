@@ -15,6 +15,8 @@ from aitester.db.models import TestCase, TestResult
 from aitester.executor.http_client import ExecutorHTTPClient
 from aitester.security.detector import SecurityDetector
 from aitester.ai.failure_analyzer import FailureAnalyzer
+import redis.asyncio as aioredis
+import json
 
 logger = logging.getLogger("aitester.executor")
 
@@ -30,6 +32,7 @@ class AsyncTestRunner:
         self.semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TESTS)
         self.enable_ai = enable_ai
         self.failure_analyzer = FailureAnalyzer() if enable_ai else None
+        self.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
     async def execute_all(self, test_cases: list[TestCase]) -> list[TestResult]:
         """
@@ -44,6 +47,11 @@ class AsyncTestRunner:
                 valid_results.append(res)
             elif isinstance(res, Exception):
                 logger.error(f"Unexpected runner error: {res}")
+
+        try:
+            await self.redis.close()
+        except Exception:
+            pass
 
         return valid_results
 
@@ -104,12 +112,20 @@ class AsyncTestRunner:
                     except Exception as e:
                         logger.error(f"Error during AI failure analysis: {e}")
 
+                try:
+                    await self.redis.publish(
+                        f"run_progress:{str(run_id)}",
+                        json.dumps({"passed": passed, "status": "completed"})
+                    )
+                except Exception as pub_exc:
+                    logger.error(f"Failed to publish progress for run {run_id}: {pub_exc}")
+
                 return result
 
 
             except HTTPClientError as e:
                 latency_ms = (time.monotonic() - start_time) * 1000.0
-                return TestResult(
+                res = TestResult(
                     test_run_id=run_id,
                     test_case_id=case_id,
                     actual_status_code=0,   # 0 = network error
@@ -120,10 +136,18 @@ class AsyncTestRunner:
                     status="failed",
                     ai_failure_analysis={"error": "network_error", "detail": str(e)},
                 )
+                try:
+                    await self.redis.publish(
+                        f"run_progress:{str(run_id)}",
+                        json.dumps({"passed": False, "status": "completed"})
+                    )
+                except Exception:
+                    pass
+                return res
             except Exception as e:
                 latency_ms = (time.monotonic() - start_time) * 1000.0
                 logger.exception(f"Unhandled error executing {test_case.method} {test_case.endpoint}")
-                return TestResult(
+                res = TestResult(
                     test_run_id=run_id,
                     test_case_id=case_id,
                     actual_status_code=0,
@@ -134,3 +158,11 @@ class AsyncTestRunner:
                     status="failed",
                     ai_failure_analysis={"error": "unhandled_exception", "detail": str(e)},
                 )
+                try:
+                    await self.redis.publish(
+                        f"run_progress:{str(run_id)}",
+                        json.dumps({"passed": False, "status": "completed"})
+                    )
+                except Exception:
+                    pass
+                return res

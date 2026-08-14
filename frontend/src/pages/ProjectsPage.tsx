@@ -3,7 +3,7 @@
  * Supports: create project, upload OpenAPI spec, launch test run, delete project.
  */
 import { useRef, useState } from 'react';
-import { FolderOpen, Plus, Trash2, Upload, Play, Loader2, AlertCircle } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, Upload, Play, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import AppLayout from '../components/AppLayout';
 import CreateProjectModal from '../components/CreateProjectModal';
 import LaunchRunModal from '../components/LaunchRunModal';
@@ -18,6 +18,14 @@ export default function ProjectsPage() {
   const [createOpen, setCreateOpen]           = useState(false);
   const [launchProject, setLaunchProject]     = useState<Project | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5; // 5 projects + 1 "Add new" card = 6 items per page
+
+  const totalItems = projects?.length || 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentProjects = projects?.slice(startIndex, startIndex + itemsPerPage) || [];
 
   const handleFileChange = (projectId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -93,7 +101,7 @@ export default function ProjectsPage() {
       {/* Projects grid */}
       {!isLoading && !isError && projects && projects.length > 0 && (
         <div className="grid-3">
-          {projects.map(p => (
+          {currentProjects.map(p => (
             <div key={p.id} className="card card-hover" style={{ cursor: 'default' }}>
               <div className="card-body">
                 <div className="flex items-start justify-between" style={{ marginBottom: 12 }}>
@@ -203,6 +211,29 @@ export default function ProjectsPage() {
               </p>
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="col-span-full flex justify-center items-center gap-4 mt-6 w-full" style={{ gridColumn: '1 / -1' }}>
+              <button 
+                className="btn btn-secondary btn-sm flex items-center"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => p - 1)}
+              >
+                <ChevronLeft size={16} /> Prev
+              </button>
+              <span className="text-sm font-medium text-[var(--color-text-muted)]">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button 
+                className="btn btn-secondary btn-sm flex items-center"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => p + 1)}
+              >
+                Next <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

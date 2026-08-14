@@ -1,124 +1,123 @@
 """
-Unit tests for the Projects REST API.
+API Projects integration tests — Beanie/MongoDB edition.
+
+These tests verify route structure, auth protection, and schema correctness
+using FastAPI's TestClient without a live database (mocked Beanie).
 """
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import ASGITransport, AsyncClient
 
-from aitester.api.dependencies import get_db
 from aitester.api.main import app
-from aitester.db.base import Base
-from aitester.db.session import AsyncSessionLocal, engine
+
+
+# ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def mock_user():
+    from beanie import PydanticObjectId
+    user = MagicMock()
+    user.id = PydanticObjectId()
+    user.email = "test@example.com"
+    user.full_name = "Test User"
+    user.plan = "free"
+    user.monthly_run_count = 0
+    user.is_active = True
+    return user
 
 
 @pytest.fixture
-async def db_session():
-    """Provides a fresh database session for a test using NullPool to avoid event-loop issues."""
-    from sqlalchemy.pool import NullPool
-
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-    from aitester.core.config import settings
-
-    # NullPool: no connection reuse between tests — avoids "Future attached to a different loop"
-    test_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
-
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    TestSession = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with TestSession() as session:
-        yield session
-        await session.rollback()
-
-    await test_engine.dispose()
+def auth_headers():
+    """Return a fake Authorization header. Auth is overridden via dependency injection."""
+    return {"Authorization": "Bearer fake-token"}
 
 
 @pytest.fixture
-async def async_client(db_session):
-    """Provides an AsyncClient for FastAPI endpoint testing."""
-    # Override the get_db dependency to use our test session
-    app.dependency_overrides[get_db] = lambda: db_session
+async def client(mock_user):
+    """Provide an AsyncClient with get_current_user mocked out."""
+    from aitester.api.dependencies import get_current_user
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        yield client
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
 
     app.dependency_overrides.clear()
 
 
-class TestProjectsAPI:
+# ─── Health ───────────────────────────────────────────────────────────────────
+
+class TestHealthCheck:
     @pytest.mark.asyncio
-    async def test_health_check(self, async_client: AsyncClient):
-        response = await async_client.get("/health")
+    async def test_health_check(self, client: AsyncClient):
+        response = await client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert "environment" in data
+        assert "version" in data
+
+
+# ─── Projects (mocked Beanie) ─────────────────────────────────────────────────
+
+class TestProjectsAuth:
+    @pytest.mark.asyncio
+    async def test_list_projects_requires_auth(self):
+        """Without the dependency override, the endpoint must reject unauthenticated requests."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.get("/api/v1/projects")
+        assert response.status_code == 401  # HTTPBearer raises 401 when no token
 
     @pytest.mark.asyncio
-    async def test_create_project(self, async_client: AsyncClient):
-        payload = {
-            "name": "My API Project",
-            "description": "Integration testing project",
-            "openapi_spec": {"openapi": "3.0.0", "info": {"title": "Test"}}
-        }
-        response = await async_client.post("/api/v1/projects", json=payload)
-
-        assert response.status_code == 201
-        data = response.json()
-        assert "id" in data
-        assert data["name"] == payload["name"]
-        assert data["description"] == payload["description"]
-        assert data["openapi_spec"] == payload["openapi_spec"]
-        assert "created_at" in data
+    async def test_create_project_requires_auth(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.post("/api/v1/projects", json={"name": "Test"})
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_create_project_invalid_payload(self, async_client: AsyncClient):
-        payload = {"description": "Missing name field"}
-        response = await async_client.post("/api/v1/projects", json=payload)
+    @patch("aitester.db.models.Project.find")
+    async def test_list_projects_returns_list(self, mock_find, client: AsyncClient):
+        """list_projects should return a JSON array."""
+        mock_chain = MagicMock()
+        mock_chain.sort.return_value = mock_chain
+        mock_chain.skip.return_value = mock_chain
+        mock_chain.limit.return_value = mock_chain
+        mock_chain.to_list = AsyncMock(return_value=[])
+        mock_find.return_value = mock_chain
 
-        # FastAPI's default validation error should be overridden to return our custom format
-        # Wait, our exception handler catches `ValidationError` from our custom exceptions.
-        # FastAPI raises `fastapi.exceptions.RequestValidationError` for pydantic errors!
-        # Let's see what it returns by default. It returns 422.
+        response = await client.get("/api/v1/projects")
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
+
+# ─── Orgs Auth ────────────────────────────────────────────────────────────────
+
+class TestOrgsAuth:
+    @pytest.mark.asyncio
+    async def test_list_orgs_requires_auth(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.get("/api/v1/orgs")
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_create_org_requires_auth(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.post("/api/v1/orgs", json={"name": "Acme"})
+        assert response.status_code == 401
+
+
+# ─── Schema Validation ────────────────────────────────────────────────────────
+
+class TestSchemaValidation:
+    @pytest.mark.asyncio
+    @patch("aitester.db.models.Project.insert")
+    async def test_create_project_missing_name_returns_422(self, mock_insert, client: AsyncClient):
+        """Missing required 'name' field must return 422."""
+        response = await client.post("/api/v1/projects", json={"description": "no name"})
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_list_projects(self, async_client: AsyncClient):
-        # Create a project first
-        await async_client.post("/api/v1/projects", json={"name": "Project 1"})
-        await async_client.post("/api/v1/projects", json={"name": "Project 2"})
-
-        response = await async_client.get("/api/v1/projects")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) >= 2
-        # ordered by created_at desc
-        assert data[0]["name"] in ["Project 1", "Project 2"]
-
-    @pytest.mark.asyncio
-    async def test_get_project_by_id(self, async_client: AsyncClient):
-        create_resp = await async_client.post(
-            "/api/v1/projects", json={"name": "Get Me"}
-        )
-        project_id = create_resp.json()["id"]
-
-        response = await async_client.get(f"/api/v1/projects/{project_id}")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == project_id
-        assert data["name"] == "Get Me"
-
-    @pytest.mark.asyncio
-    async def test_get_project_not_found(self, async_client: AsyncClient):
-        import uuid
-        random_id = str(uuid.uuid4())
-        response = await async_client.get(f"/api/v1/projects/{random_id}")
-
-        assert response.status_code == 404
-        data = response.json()
-        assert data["error"] == "Not Found"
+    async def test_create_org_missing_name_returns_422(self, client: AsyncClient):
+        """Missing required 'name' field for org must return 422."""
+        response = await client.post("/api/v1/orgs", json={})
+        assert response.status_code == 422
