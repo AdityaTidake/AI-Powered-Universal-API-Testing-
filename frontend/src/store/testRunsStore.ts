@@ -70,3 +70,21 @@ export function useDeleteTestRun(projectId: string) {
     },
   });
 }
+
+// ── Cancel Run ────────────────────────────────────────────────────────────────
+export function useCancelTestRun(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => testRunsAPI.cancel(runId),
+    onSuccess: (_data, runId) => {
+      qc.invalidateQueries({ queryKey: runsKey(projectId) });
+      qc.invalidateQueries({ queryKey: runKey(runId) });
+      toast.success('Test run cancelled.');
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.detail ?? 'Failed to cancel test run.';
+      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    },
+  });
+}
+

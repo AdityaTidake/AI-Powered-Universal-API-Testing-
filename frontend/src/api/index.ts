@@ -53,6 +53,7 @@ export const testRunsAPI = {
   status:  (runId: string)     => apiClient.get<TestRunProgress>(`/api/v1/runs/${runId}/status`),
   results: (runId: string)     => apiClient.get<TestResult[]>(`/api/v1/runs/${runId}/results`),
   delete:  (runId: string)     => apiClient.delete(`/api/v1/runs/${runId}`),
+  cancel:           (runId: string) => apiClient.patch(`/api/v1/runs/${runId}/cancel`),
   exportReportHtml: (runId: string) => apiClient.get(`/api/v1/runs/${runId}/report/html`, { responseType: 'blob' }),
   exportReportJson: (runId: string) => apiClient.get(`/api/v1/runs/${runId}/report/json`, { responseType: 'blob' }),
 };

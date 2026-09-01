@@ -1,6 +1,6 @@
 from typing import Any
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 
 # Keywords that indicate a potential vulnerability leaked in an error message
 SQLI_ERROR_KEYWORDS = ["syntax error", "mysql", "postgresql", "ora-", "sql syntax"]

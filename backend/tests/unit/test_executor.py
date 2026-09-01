@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.executor.runner import AsyncTestRunner
 
 

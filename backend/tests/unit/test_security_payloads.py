@@ -1,6 +1,6 @@
 import pytest
 
-from aitester.db.models.test_case import TestCase
+from aitester.db.models import TestCase
 from aitester.parser.models import ParsedEndpoint, ParsedParameter, ParsedRequestBody
 from aitester.security.detector import SecurityDetector
 from aitester.security.generator import SecurityGenerator

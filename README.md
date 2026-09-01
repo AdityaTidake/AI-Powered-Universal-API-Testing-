@@ -5,6 +5,12 @@
 
 ---
 
+## 🚨 Problem Statement
+
+In modern software development, APIs are the backbone of applications, but testing them thoroughly remains a significant bottleneck. Traditional API testing processes are highly manual, time-consuming, and prone to human error. QA engineers and developers spend countless hours writing, maintaining, and updating test scripts, which often fail to cover critical edge cases, complex logic flows, or obscure security vulnerabilities. As APIs evolve rapidly, keeping test suites synchronized becomes a maintenance nightmare, leading to untested code reaching production, potential security breaches, and decreased delivery speed. There is a pressing need for an intelligent solution that can autonomously generate, execute, and analyze comprehensive API tests without the heavy overhead of manual script writing and maintenance.
+
+---
+
 ## 🌟 Unique Selling Proposition (USP)
 
 Traditional API testing requires QA engineers to manually write and maintain extensive test collections, often missing critical edge cases. **SpecGuard AI revolutionizes this workflow by completely automating API testing.**

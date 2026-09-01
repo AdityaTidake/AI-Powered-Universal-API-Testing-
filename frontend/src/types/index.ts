@@ -46,7 +46,7 @@ export interface ProjectCreate {
 }
 
 // ── Test Runs ─────────────────────────────────────────────────────────────────
-export type TestRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type TestRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface TestRun {
   id: string;

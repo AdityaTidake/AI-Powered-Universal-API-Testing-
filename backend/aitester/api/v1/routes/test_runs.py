@@ -287,3 +287,37 @@ async def delete_test_run(
         raise HTTPException(status_code=404, detail="Test run not found.")
     await _get_owned_project(str(run.project_id), current_user)
     await run.delete()
+
+
+# ─── Cancel Run ───────────────────────────────────────────────────────────────
+
+@router.patch(
+    "/runs/{run_id}/cancel",
+    response_model=TestRunResponse,
+    summary="Cancel an active (RUNNING or PENDING) test run",
+)
+async def cancel_test_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+) -> TestRunResponse:
+    try:
+        run = await TestRun.get(PydanticObjectId(run_id))
+    except Exception:
+        run = None
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found.")
+    await _get_owned_project(str(run.project_id), current_user)
+
+    if run.status not in ("RUNNING", "PENDING"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot cancel a run with status '{run.status}'.",
+        )
+
+    run.status = "CANCELLED"
+    run.completed_at = datetime.now(UTC)
+    await run.save()
+    logger.info("Run %s cancelled by user %s", run_id, current_user.id)
+
+    return await _attach_counts(run)
+

@@ -3,18 +3,19 @@
  * Supports status filtering and real-time polling for active runs.
  */
 import { useState } from 'react';
-import { Play, Clock, CheckCircle2, XCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Play, Clock, CheckCircle2, XCircle, Loader2, AlertCircle, StopCircle } from 'lucide-react';
 import AppLayout from '../components/AppLayout';
 import LaunchRunModal from '../components/LaunchRunModal';
 import { useProjects } from '../store/projectsStore';
-import { useTestRuns, usePollTestRun } from '../store/testRunsStore';
+import { useTestRuns, usePollTestRun, useCancelTestRun } from '../store/testRunsStore';
 import type { TestRun, TestRunStatus, Project } from '../types';
 
 // ── Status helpers ─────────────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: TestRunStatus }) {
-  if (status === 'COMPLETED') return <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />;
-  if (status === 'FAILED')    return <XCircle      size={14} style={{ color: 'var(--color-danger)'  }} />;
-  if (status === 'RUNNING')   return <Loader2      size={14} style={{ color: 'var(--color-info)', animation: 'spin 1s linear infinite' }} />;
+  if (status === 'COMPLETED')  return <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />;
+  if (status === 'FAILED')     return <XCircle      size={14} style={{ color: 'var(--color-danger)'  }} />;
+  if (status === 'CANCELLED')  return <StopCircle   size={14} style={{ color: 'var(--color-text-muted)' }} />;
+  if (status === 'RUNNING')    return <Loader2      size={14} style={{ color: 'var(--color-info)', animation: 'spin 1s linear infinite' }} />;
   return <Clock size={14} style={{ color: 'var(--color-text-muted)' }} />;
 }
 
@@ -22,6 +23,7 @@ function StatusBadge({ status }: { status: TestRunStatus }) {
   const cls: Record<string, string> = {
     COMPLETED: 'badge-success', FAILED: 'badge-danger',
     RUNNING: 'badge-info',      PENDING: 'badge-gray',
+    CANCELLED: 'badge-gray',
   };
   return (
     <span className={`badge ${cls[status] ?? 'badge-gray'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -42,7 +44,7 @@ function ProjectRunRows({ project, statusFilter }: { project: Project; statusFil
   if (isLoading) {
     return (
       <tr>
-        <td colSpan={8} style={{ textAlign: 'center', padding: 12, color: 'var(--color-text-muted)' }}>
+        <td colSpan={9} style={{ textAlign: 'center', padding: 12, color: 'var(--color-text-muted)' }}>
           Loading runs for {project.name}…
         </td>
       </tr>
@@ -52,17 +54,19 @@ function ProjectRunRows({ project, statusFilter }: { project: Project; statusFil
   return (
     <>
       {filtered.map(run => (
-        <RunRow key={run.id} run={run} projectName={project.name} />
+        <RunRow key={run.id} run={run} projectName={project.name} projectId={project.id} />
       ))}
     </>
   );
 }
 
 // ── Single run row (polls if RUNNING/PENDING) ─────────────────────────────────
-function RunRow({ run, projectName }: { run: TestRun; projectName: string }) {
+function RunRow({ run, projectName, projectId }: { run: TestRun; projectName: string; projectId: string }) {
   const isActive = run.status === 'RUNNING' || run.status === 'PENDING';
   const { data: liveRun } = usePollTestRun(run.id, isActive);
   const r = liveRun ?? run;
+
+  const cancelRun = useCancelTestRun(projectId);
 
   const passRate = r.total_cases
     ? Math.round(((r.passed_cases ?? 0) / r.total_cases) * 100)
@@ -107,12 +111,27 @@ function RunRow({ run, projectName }: { run: TestRun; projectName: string }) {
       <td className="text-sm text-muted">
         {new Date(r.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
       </td>
+      <td>
+        {isActive && (
+          <button
+            id={`stop-run-${r.id}`}
+            className="btn btn-sm btn-danger"
+            disabled={cancelRun.isPending}
+            onClick={() => cancelRun.mutate(r.id)}
+            title="Stop this run"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          >
+            <StopCircle size={13} />
+            {cancelRun.isPending ? 'Stopping…' : 'Stop'}
+          </button>
+        )}
+      </td>
     </tr>
   );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-const FILTERS = ['All', 'Completed', 'Failed', 'Running', 'Pending'];
+const FILTERS = ['All', 'Completed', 'Failed', 'Running', 'Pending', 'Cancelled'];
 
 export default function TestRunsPage() {
   const [filter, setFilter]           = useState('All');
@@ -191,6 +210,7 @@ export default function TestRunsPage() {
                   <th>Pass Rate</th>
                   <th>Duration</th>
                   <th>Created</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -212,3 +232,5 @@ export default function TestRunsPage() {
     </AppLayout>
   );
 }
+
+
